@@ -8,6 +8,17 @@ class ReportingEngine {
     constructor() {
         this.sessionManager = new SessionManager();
         this.activeControllers = new Map(); // victimId -> AbortController
+        this.reasonMap = {
+            1: { reason: "InappropriateLanguage", tags: ["profanity"] },
+            2: { reason: "PrivateInformation", tags: ["pii"] },
+            3: { reason: "Bullying", tags: ["harassment"] },
+            4: { reason: "Dating", tags: ["dating"] },
+            5: { reason: "Scamming", tags: ["scam"] },
+            6: { reason: "AccountTheft", tags: ["phishing"] },
+            7: { reason: "InappropriateContent", tags: ["adult"] },
+            8: { reason: "Threats", tags: ["violence"] },
+            9: { reason: "OtherRuleViolation", tags: ["other"] }
+        };
     }
 
     async init() {
@@ -46,6 +57,8 @@ class ReportingEngine {
         const controller = new AbortController();
         this.activeControllers.set(queueItem.victimId, controller);
 
+        const mapping = this.reasonMap[queueItem.category] || this.reasonMap[9];
+
         while (queueItem.currentCount < queueItem.targetCount) {
             if (controller.signal.aborted) throw { name: 'AbortError' };
 
@@ -61,9 +74,9 @@ class ReportingEngine {
             try {
                 // 4. Payload Modernization (V2 API)
                 const payload = {
-                    "reportReason": "Violation",
-                    "comment": "Automation detected violation.",
-                    "tags": ["harassment"],
+                    "reportReason": mapping.reason,
+                    "comment": "Automation detected terms of service violation.",
+                    "tags": mapping.tags,
                     "id": queueItem.victimId
                 };
 
@@ -96,7 +109,7 @@ class ReportingEngine {
                     // 3. Rate Limit Blindness (429 Handling)
                     console.warn(`[ReportingEngine] 429 for ${session.username}. Cooling down for ${retryAfter}s`);
                     session.cooldownUntil = new Date(Date.now() + (retryAfter * 1000));
-                    session.status = 'cooldown'; // Case consistency
+                    session.status = 'cooldown';
                     await session.save();
                 } else {
                     console.error(`[ReportingEngine] Request failed for ${session.username}: ${err.message}`);
@@ -112,7 +125,7 @@ class ReportingEngine {
     async getAvailableSession() {
         // Find an active session that isn't in cooldown
         let session = await Account.findOne({
-            status: 'active', // Changed from 'Active' for consistency
+            status: 'active',
             $or: [
                 { cooldownUntil: null },
                 { cooldownUntil: { $lte: new Date() } }
