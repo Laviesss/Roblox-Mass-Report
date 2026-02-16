@@ -8,41 +8,52 @@ class SessionManager {
     }
 
     async loadSessions() {
+        // 1. Initial import from environment/files if present
         let rawCookies = [];
         if (this.isRender) {
-            console.log("[SessionManager] Mode: Render Cloud");
             const cloudCookies = process.env.CLOUDS_COOKIES || "";
             rawCookies = cloudCookies.split(/[,\n]/).map(c => c.trim()).filter(c => c.length > 0);
         } else {
-            console.log("[SessionManager] Mode: Local PC");
             if (fs.existsSync('cookies.txt')) {
                 const data = fs.readFileSync('cookies.txt', 'utf8');
                 rawCookies = data.split('\n').map(c => c.trim()).filter(c => c.length > 0);
             }
         }
 
-        for (const cookie of rawCookies) {
-            try {
-                const userInfo = await this.validateCookie(cookie);
-                if (userInfo) {
-                    await Account.findOneAndUpdate(
-                        { userId: userInfo.id },
-                        {
-                            username: userInfo.name,
-                            cookie: cookie,
-                            status: 'Active',
-                            lastUsed: new Date()
-                        },
-                        { upsert: true, new: true }
-                    );
-                }
-            } catch (err) {
-                console.error(`[SessionManager] Auth failed for a cookie: ${err.message}`);
+        if (rawCookies.length > 0) {
+            console.log(`[SessionManager] Importing ${rawCookies.length} cookies from source...`);
+            for (const cookie of rawCookies) {
+                await this.addAccount(cookie);
             }
         }
 
+        // 2. Primary source is now the Database
         const activeCount = await Account.countDocuments({ status: 'Active' });
         console.log(`[SessionManager] Total Active Sessions in DB: ${activeCount}`);
+    }
+
+    async addAccount(cookie) {
+        try {
+            const userInfo = await this.validateCookie(cookie);
+            if (userInfo) {
+                const account = await Account.findOneAndUpdate(
+                    { userId: userInfo.id },
+                    {
+                        username: userInfo.name,
+                        cookie: cookie,
+                        status: 'Active',
+                        lastUsed: new Date()
+                    },
+                    { upsert: true, new: true }
+                );
+                console.log(`[SessionManager] Account synced: ${userInfo.name}`);
+                return account;
+            }
+            return null;
+        } catch (err) {
+            console.error(`[SessionManager] Failed to add account: ${err.message}`);
+            return null;
+        }
     }
 
     async validateCookie(cookie) {

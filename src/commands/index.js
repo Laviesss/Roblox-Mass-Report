@@ -26,6 +26,24 @@ module.exports = (engine) => [
         }
     },
     {
+        data: new SlashCommandBuilder()
+            .setName('add_account')
+            .setDescription('Add a Roblox cookie directly to the database pool')
+            .addStringOption(opt => opt.setName('cookie').setDescription('.ROBLOSECURITY cookie string').setRequired(true)),
+        async execute(interaction) {
+            const cookie = interaction.options.getString('cookie');
+            // Defer reply as authentication might take a second
+            await interaction.deferReply({ ephemeral: true });
+
+            const account = await engine.sessionManager.addAccount(cookie);
+            if (account) {
+                await interaction.editReply(`✅ Account authenticated and added: **${account.username}** (${account.userId})`);
+            } else {
+                await interaction.editReply(`❌ Failed to add account. Ensure the cookie is valid and not expired.`);
+            }
+        }
+    },
+    {
         data: new SlashCommandBuilder().setName('status').setDescription('Get system status'),
         async execute(interaction) {
             const active = await Account.countDocuments({ status: 'Active' });
