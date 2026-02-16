@@ -1,57 +1,79 @@
 require('dotenv').config();
 const express = require('express');
-const { Client, GatewayIntentBits } = require('discord.js');
-const RobloxBot = require('./bot');
+const http = require('http');
+const { Server } = require('socket.io');
+const { Client, GatewayIntentBits, REST, Routes } = require('discord.js');
+const connectDB = require('./core/database');
+const ReportingEngine = require('./core/reportingEngine');
+const commands = require('./commands');
+const Queue = require('./models/Queue');
+const Account = require('./models/Account');
+const path = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const server = http.createServer(app);
+const io = new Server(server);
 
-// Initialize Roblox Bot
-const robloxBot = new RobloxBot();
+// Middleware
+app.use(express.static(path.join(__dirname, 'web/public')));
 
-// Express Dashboard
-app.get('/', (req, res) => {
-    res.send('<h1>Roblox Mass Report Suite Dashboard</h1><p>Status: Online</p>');
+// Database
+connectDB();
+
+// Reporting Engine
+const engine = new ReportingEngine();
+engine.init().then(() => {
+    setInterval(() => engine.processQueue(), 10000);
 });
 
-app.get('/health', (req, res) => {
-    res.status(200).json({ status: 'OK', environment: process.env.RENDER ? 'Render Cloud' : 'Local PC' });
+// Discord Bot
+const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isChatInputCommand()) return;
+    const command = commands.find(c => c.data.name === interaction.commandName);
+    if (command) await command.execute(interaction);
 });
 
-// Start Express Server
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Dashboard] Server running on http://0.0.0.0:${PORT}`);
-    console.log(`[Dashboard] Environment: ${process.env.RENDER ? 'Render Cloud' : 'Local PC'}`);
+// Socket.io Real-time Updates
+io.on('connection', (socket) => {
+    console.log('[Dashboard] UI connected');
+
+    const sendUpdates = async () => {
+        const queue = await Queue.find().sort({ createdAt: -1 }).limit(10);
+        const activeCount = await Account.countDocuments({ status: 'Active' });
+        socket.emit('queueUpdate', queue);
+        socket.emit('accountUpdate', { activeCount });
+    };
+
+    const interval = setInterval(sendUpdates, 5000);
+    sendUpdates();
+
+    socket.on('disconnect', () => clearInterval(interval));
 });
 
-// Initialize Discord Bot
-const discordClient = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
+// Command Registration
+const registerCommands = async () => {
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+    try {
+        console.log('[Discord] Refreshing slash commands...');
+        await rest.put(
+            Routes.applicationCommands(process.env.CLIENT_ID),
+            { body: commands.map(c => c.data.toJSON()) }
+        );
+    } catch (err) {
+        console.error('[Discord] Registration error:', err);
+    }
+};
 
-discordClient.once('ready', () => {
-    console.log(`[Discord] Logged in as ${discordClient.user.tag}`);
-});
-
-const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-if (DISCORD_TOKEN && DISCORD_TOKEN !== 'your_discord_token_here') {
-    discordClient.login(DISCORD_TOKEN).catch(err => {
-        console.error("[Discord] Login failed:", err.message);
-    });
-} else {
-    console.warn("[Discord] No valid DISCORD_TOKEN found in environment. Bot client not started.");
+if (process.env.DISCORD_TOKEN && process.env.CLIENT_ID) {
+    registerCommands();
+    client.login(process.env.DISCORD_TOKEN);
 }
 
-// Initialize Roblox Bot (load cookies)
-robloxBot.init().then(() => {
-    console.log("[Bot] Roblox Bot initialized and ready.");
-
-    // Auto-start if configured in env
-    if (process.env.AUTO_START === 'true' && process.env.VICTIM_USERNAME) {
-        const username = process.env.VICTIM_USERNAME;
-        const count = parseInt(process.env.REPORT_COUNT) || 0;
-        const category = parseInt(process.env.REPORT_CATEGORY) || 1;
-        const cooldown = parseInt(process.env.COOLDOWN) || 5;
-
-        console.log(`[Bot] Auto-starting mass report for ${username}...`);
-        robloxBot.runMassReport(username, count, category, cooldown);
-    }
+// Start Server
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`[Suite] Server operational on port ${PORT}`);
+    console.log(`[Suite] Dashboard: http://localhost:${PORT}`);
 });

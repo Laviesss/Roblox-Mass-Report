@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Roblox Management Suite Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #121212; color: #e0e0e0; margin: 20px; }
+        .container { max-width: 1200px; margin: auto; }
+        .card { background: #1e1e1e; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        h1, h2 { color: #bb86fc; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        #queue-list { list-style: none; padding: 0; }
+        #queue-list li { padding: 10px; border-bottom: 1px solid #333; }
+        .status-online { color: #03dac6; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Roblox Management Suite <span class="status-online" id="status">●</span></h1>
+
+        <div class="grid">
+            <div class="card">
+                <h2>Activity Graphs</h2>
+                <canvas id="activityChart"></canvas>
+            </div>
+            <div class="card">
+                <h2>Target Queue Manager</h2>
+                <ul id="queue-list">
+                    <li>Loading queue...</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Account Health Updates</h2>
+            <div id="account-status">
+                Scanning sessions...
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        const ctx = document.getElementById('activityChart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: ['10:00', '11:00', '12:00', '13:00', '14:00', '15:00'],
+                datasets: [{
+                    label: 'Report Volume',
+                    data: [12, 19, 3, 5, 2, 3],
+                    borderColor: '#bb86fc',
+                    tension: 0.1
+                }]
+            },
+            options: { scales: { y: { beginAtZero: true } } }
+        });
+
+        socket.on('queueUpdate', (data) => {
+            const list = document.getElementById('queue-list');
+            list.innerHTML = data.map(item => `<li>${item.victimUsername} - ${item.currentCount}/${item.targetCount} (${item.status})</li>`).join('');
+        });
+
+        socket.on('accountUpdate', (data) => {
+            document.getElementById('account-status').innerText = `Active Sessions: ${data.activeCount}`;
+        });
+
+        socket.on('connect', () => document.getElementById('status').style.color = '#03dac6');
+        socket.on('disconnect', () => document.getElementById('status').style.color = '#cf6679');
+    </script>
+</body>
+</html>
