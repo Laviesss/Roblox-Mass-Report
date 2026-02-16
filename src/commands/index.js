@@ -4,6 +4,18 @@ const Account = require('../models/Account');
 const Report = require('../models/Report');
 const axios = require('axios');
 
+const calculateAge = (createdAt) => {
+    const created = new Date(createdAt);
+    const now = new Date();
+    let years = now.getFullYear() - created.getFullYear();
+    let months = now.getMonth() - created.getMonth();
+    if (months < 0) {
+        years--;
+        months += 12;
+    }
+    return `${years} Years, ${months} Months`;
+};
+
 module.exports = (engine) => [
     {
         data: new SlashCommandBuilder()
@@ -123,18 +135,70 @@ module.exports = (engine) => [
     {
         data: new SlashCommandBuilder()
             .setName('scrape')
-            .setDescription('Get user intelligence')
+            .setDescription('Get detailed visual target intelligence')
             .addStringOption(opt => opt.setName('username').setDescription('Target username').setRequired(true)),
         async execute(interaction) {
-            await interaction.deferReply();
             const username = interaction.options.getString('username');
             try {
-                const res = await axios.post("https://users.roblox.com/v1/usernames/users", { usernames: [username] });
-                if (!res.data.data.length) return interaction.editReply("User not found.");
-                const id = res.data.data[0].id;
-                const detail = await axios.get(`https://users.roblox.com/v1/users/${id}`);
-                await interaction.editReply(`Intelligence [${username}]:\nID: ${id}\nCreated: ${detail.data.created}\nDescription: ${detail.data.description || 'None'}`);
-            } catch (err) { await interaction.editReply(`Scrape Error: ${err.message}`); }
+                // 1. Resolve Username to ID (Fast enough to do before defer for conditional ephemerality)
+                const userRes = await axios.post("https://users.roblox.com/v1/usernames/users", { usernames: [username] });
+                if (!userRes.data.data.length) {
+                    return interaction.reply({ content: "❌ Target ID not found in Roblox Database.", ephemeral: true });
+                }
+
+                await interaction.deferReply();
+                const id = userRes.data.data[0].id;
+
+                // 2. Fetch Multi-API Data
+                const [detail, thumb, presence] = await Promise.all([
+                    axios.get(`https://users.roblox.com/v1/users/${id}`),
+                    axios.get(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${id}&size=150x150&format=Png&isCircular=false`),
+                    axios.post("https://presence.roblox.com/v1/presence/users", { userIds: [id] })
+                ]);
+
+                const userData = detail.data;
+                const avatarUrl = thumb.data.data[0]?.imageUrl || "";
+                const presenceData = presence.data.userPresences[0] || { userPresenceType: 0 };
+
+                // 3. Logic & Calculations
+                const age = calculateAge(userData.created);
+                const bio = userData.description
+                    ? (userData.description.length > 200 ? userData.description.substring(0, 197) + "..." : userData.description)
+                    : "No bio provided.";
+
+                let status = "Offline";
+                let color = "#808080"; // Grey
+
+                if (presenceData.userPresenceType >= 1) {
+                    color = "#00FF00"; // Green
+                    if (presenceData.userPresenceType === 1) status = "Online";
+                    else if (presenceData.userPresenceType === 2) status = "In-Game";
+                    else if (presenceData.userPresenceType === 3) status = "In Studio";
+                }
+
+                // 4. Construct Embed
+                const embed = new EmbedBuilder()
+                    .setTitle(`Target Intelligence: ${userData.name}`)
+                    .setThumbnail(avatarUrl)
+                    .setColor(color)
+                    .addFields(
+                        { name: 'Account Age', value: age, inline: true },
+                        { name: 'Status', value: status, inline: true },
+                        { name: 'Verified', value: userData.hasVerifiedBadge ? "✅ Yes" : "❌ No", inline: true },
+                        { name: 'Bio', value: bio }
+                    )
+                    .setTimestamp()
+                    .setFooter({ text: `UserID: ${id}` });
+
+                await interaction.editReply({ embeds: [embed] });
+            } catch (err) {
+                console.error(err);
+                if (interaction.deferred) {
+                    await interaction.editReply("❌ An error occurred while scraping target data.");
+                } else {
+                    await interaction.reply({ content: "❌ An error occurred while scraping target data.", ephemeral: true });
+                }
+            }
         }
     },
     {
