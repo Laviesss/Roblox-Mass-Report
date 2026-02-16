@@ -1,0 +1,13 @@
+{
+  "name": "roblox-mass-report-node",
+  "version": "1.0.0",
+  "description": "Modernized Node.js version of the Roblox-Mass-Report tool.",
+  "main": "src/bot.js",
+  "scripts": {
+    "start": "node src/bot.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "cheerio": "^1.0.0-rc.12"
+  }
+}
