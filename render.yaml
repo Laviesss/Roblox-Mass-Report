@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: roblox-mass-report-suite
+    env: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    domains:
+      - "yourcustomdomain.com" # Placeholder for user
+    envVars:
+      - key: NODE_VERSION
+        value: 20.x
+      - key: RENDER
+        value: "true"
+      - key: CLOUDS_COOKIES
+        sync: false # User will provide this in Dashboard (comma or newline separated)
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: PORT
+        value: 10000
+      - key: AUTO_START
+        value: "true"
+      - key: VICTIM_USERNAME
+        sync: false
+      - key: REPORT_COUNT
+        value: "0"
+      - key: REPORT_CATEGORY
+        value: "1"
+      - key: COOLDOWN
+        value: "5"

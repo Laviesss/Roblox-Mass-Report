@@ -1,7 +1,7 @@
 module.exports = {
   apps: [{
     name: "roblox-bot-node",
-    script: "./src/bot.js",
+    script: "./src/server.js",
     watch: false,
     autorestart: true,
     env: {
