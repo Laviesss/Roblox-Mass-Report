@@ -1,4 +1,4 @@
-# 📖 Roblox-Mass-Reporter Technical Documentation (v3.1)
+# 📖 Roblox-Mass-Reporter Technical Documentation (v3.2)
 
 Welcome to the comprehensive guide for the **Roblox-Mass-Reporter**. This document details the database-first architecture and unified command suite.
 
@@ -6,10 +6,11 @@ Welcome to the comprehensive guide for the **Roblox-Mass-Reporter**. This docume
 
 ## 🏛️ System Architecture
 
-### 1. Database-First Management (New)
+### 1. Database-First Management (Interactive)
 The suite has moved away from file-based account management. While it can still perform an initial import from `cookies.txt` or `CLOUDS_COOKIES`, the **MongoDB Database** is now the primary source of truth.
-*   **Security:** Cookies are stored safely in your MongoDB cluster.
-*   **Persistence:** Once an account is added via Discord, it remains in the pool across all restarts and deployments.
+*   **Interactive Dashboard:** Use `/accounts` to manage your account pool via an interactive Discord UI.
+*   **Security:** Cookies are stored safely in your MongoDB cluster and never logged.
+*   **Persistence:** Accounts persist across all restarts and deployments.
 
 ### 2. The Auth-Wall Bypass (CSRF Interceptor)
 Roblox requires an `X-CSRF-TOKEN` for sensitive requests. This suite uses an **Axios Interceptor**:
@@ -19,10 +20,10 @@ Roblox requires an `X-CSRF-TOKEN` for sensitive requests. This suite uses an **A
 
 ## ⌨️ Discord Command Guide
 
-The suite features 10 integrated slash commands.
+The suite features 9 integrated slash commands.
 
 ### Tactical & Management
-*   **`/add_account [cookie]`**: (NEW) Links a new Roblox account to the suite. It validates the cookie via the Roblox API and saves the session to the database.
+*   **`/accounts`**: (NEW) Opens the **Account Management Dashboard**. From here, you can view health stats, filter account views, and click the **"Add New Account"** button to open a secure cookie input Modal.
 *   **`/report [username] [amount] [category]`**: Resolves the target and adds them to the persistent report queue.
 *   **`/terminate`**: Global Kill Switch. Aborts all active tasks and clears the queue.
 
@@ -32,7 +33,6 @@ The suite features 10 integrated slash commands.
 *   **`/check_target [username]`**: Rapid profile validation.
 
 ### System Commands
-*   **`/accounts`**: Shows the health and cooldown status of every linked account in your DB pool.
 *   **`/status`**: System uptime, active tasks, and session counts.
 *   **`/logs`**: Shows the last 10 successful activities from the DB.
 *   **`/slowmode [seconds]`**: Adjusts engine loop delays.
@@ -50,8 +50,7 @@ The suite features 10 integrated slash commands.
 *   **Cloud (Render):** Connect your repo; it will detect `render.yaml`.
 
 ### 3. Populating Accounts
-Instead of editing `cookies.txt`, simply open your Discord and use:
-`/add_account cookie: YOUR_ROBLOSECURITY_COOKIE_HERE`
+Instead of editing `cookies.txt`, simply run `/accounts` in Discord and click **"Add New Account"**. A modal will pop up allowing you to paste your cookie securely.
 
 ---
-**Security:** Full credentials are never logged. The suite uses `Credential Masking` to ensure only Usernames and IDs appear in server output.
+**Security:** Full credentials are never logged. The suite uses `Credential Masking` and ephemeral Discord responses to ensure absolute safety.

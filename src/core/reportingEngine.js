@@ -61,9 +61,9 @@ class ReportingEngine {
             try {
                 // 4. Payload Modernization (V2 API)
                 const payload = {
-                    "reportReason": "Violation", // In reality this should map to categories
+                    "reportReason": "Violation",
                     "comment": "Automation detected violation.",
-                    "tags": ["harassment"], // Placeholder
+                    "tags": ["harassment"],
                     "id": queueItem.victimId
                 };
 
@@ -96,7 +96,7 @@ class ReportingEngine {
                     // 3. Rate Limit Blindness (429 Handling)
                     console.warn(`[ReportingEngine] 429 for ${session.username}. Cooling down for ${retryAfter}s`);
                     session.cooldownUntil = new Date(Date.now() + (retryAfter * 1000));
-                    session.status = 'Cooldown';
+                    session.status = 'cooldown'; // Case consistency
                     await session.save();
                 } else {
                     console.error(`[ReportingEngine] Request failed for ${session.username}: ${err.message}`);
@@ -112,7 +112,7 @@ class ReportingEngine {
     async getAvailableSession() {
         // Find an active session that isn't in cooldown
         let session = await Account.findOne({
-            status: 'Active',
+            status: 'active', // Changed from 'Active' for consistency
             $or: [
                 { cooldownUntil: null },
                 { cooldownUntil: { $lte: new Date() } }

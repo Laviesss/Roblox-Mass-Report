@@ -28,8 +28,8 @@ class SessionManager {
         }
 
         // 2. Primary source is now the Database
-        const activeCount = await Account.countDocuments({ status: 'Active' });
-        console.log(`[SessionManager] Total Active Sessions in DB: ${activeCount}`);
+        const activeCount = await Account.countDocuments({ status: 'active' });
+        console.log(`[SessionManager] Total active Sessions in DB: ${activeCount}`);
     }
 
     async addAccount(cookie) {
@@ -41,8 +41,8 @@ class SessionManager {
                     {
                         username: userInfo.name,
                         cookie: cookie,
-                        status: 'Active',
-                        lastUsed: new Date()
+                        status: 'active', // Lowercase consistency
+                        last_checked: new Date()
                     },
                     { upsert: true, new: true }
                 );
@@ -68,10 +68,10 @@ class SessionManager {
     }
 
     async getRandomSession() {
-        const count = await Account.countDocuments({ status: 'Active' });
+        const count = await Account.countDocuments({ status: 'active' });
         if (count === 0) return null;
         const random = Math.floor(Math.random() * count);
-        return await Account.findOne({ status: 'Active' }).skip(random);
+        return await Account.findOne({ status: 'active' }).skip(random);
     }
 }
 

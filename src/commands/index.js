@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } = require('discord.js');
 const Queue = require('../models/Queue');
 const Account = require('../models/Account');
 const Report = require('../models/Report');
@@ -13,40 +13,68 @@ module.exports = (engine) => [
             .addIntegerOption(opt => opt.setName('amount').setDescription('Number of reports').setRequired(true))
             .addIntegerOption(opt => opt.setName('category').setDescription('Category ID (1-9)').setRequired(true)),
         async execute(interaction) {
+            await interaction.deferReply(); // Mitigation for slow API
             const username = interaction.options.getString('username');
             const amount = interaction.options.getInteger('amount');
             const category = interaction.options.getInteger('category');
             try {
                 const res = await axios.post("https://users.roblox.com/v1/usernames/users", { usernames: [username] });
-                if (!res.data.data.length) return interaction.reply("User not found.");
+                if (!res.data.data.length) return interaction.editReply("User not found.");
                 const victimId = res.data.data[0].id;
                 await Queue.create({ victimUsername: username, victimId: victimId, targetCount: amount, category: category });
-                await interaction.reply(`[Queue] Target ${username} added for ${amount} reports.`);
-            } catch (err) { await interaction.reply(`Error: ${err.message}`); }
+                await interaction.editReply(`[Queue] Target ${username} added for ${amount} reports.`);
+            } catch (err) { await interaction.editReply(`Error: ${err.message}`); }
         }
     },
     {
         data: new SlashCommandBuilder()
-            .setName('add_account')
-            .setDescription('Add a Roblox cookie directly to the database pool')
-            .addStringOption(opt => opt.setName('cookie').setDescription('.ROBLOSECURITY cookie string').setRequired(true)),
+            .setName('accounts')
+            .setDescription('Interactive Account Management Dashboard'),
         async execute(interaction) {
-            const cookie = interaction.options.getString('cookie');
-            // Defer reply as authentication might take a second
-            await interaction.deferReply({ ephemeral: true });
+            const total = await Account.countDocuments();
+            const active = await Account.countDocuments({ status: 'active' });
+            const cooldown = await Account.countDocuments({ status: 'cooldown' });
+            const dead = await Account.countDocuments({ status: 'dead' });
 
-            const account = await engine.sessionManager.addAccount(cookie);
-            if (account) {
-                await interaction.editReply(`✅ Account authenticated and added: **${account.username}** (${account.userId})`);
-            } else {
-                await interaction.editReply(`❌ Failed to add account. Ensure the cookie is valid and not expired.`);
-            }
+            const embed = new EmbedBuilder()
+                .setTitle('📊 Account Management Dashboard')
+                .setColor('#bb86fc')
+                .addFields(
+                    { name: 'Total Sessions', value: `${total}`, inline: true },
+                    { name: 'Active', value: `${active}`, inline: true },
+                    { name: 'Cooldown', value: `${cooldown}`, inline: true },
+                    { name: 'Dead', value: `${dead}`, inline: true }
+                )
+                .setTimestamp()
+                .setFooter({ text: 'Roblox-Mass-Reporter Control Center' });
+
+            const filterRow = new ActionRowBuilder()
+                .addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId('filter_accounts')
+                        .setPlaceholder('Filter account view...')
+                        .addOptions([
+                            { label: 'View All', value: 'all' },
+                            { label: 'Active Only', value: 'active' },
+                            { label: 'Show Dead', value: 'dead' },
+                        ])
+                );
+
+            const actionRow = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('trigger_add_modal')
+                        .setLabel('Add New Account')
+                        .setStyle(ButtonStyle.Success)
+                );
+
+            await interaction.reply({ embeds: [embed], components: [filterRow, actionRow] });
         }
     },
     {
         data: new SlashCommandBuilder().setName('status').setDescription('Get system status'),
         async execute(interaction) {
-            const active = await Account.countDocuments({ status: 'Active' });
+            const active = await Account.countDocuments({ status: 'active' });
             const inProgress = await Queue.countDocuments({ status: 'In Progress' });
             await interaction.reply(`System Status:\nActive Accounts: ${active}\nActive Tasks: ${inProgress}\nUptime: ${Math.floor(process.uptime())}s`);
         }
@@ -57,14 +85,6 @@ module.exports = (engine) => [
             engine.terminateAll();
             await Queue.updateMany({ status: { $in: ['Pending', 'In Progress'] } }, { status: 'Terminated' });
             await interaction.reply("🔴 Emergency Kill Switch activated. All tasks aborted.");
-        }
-    },
-    {
-        data: new SlashCommandBuilder().setName('accounts').setDescription('Health grid of accounts'),
-        async execute(interaction) {
-            const accounts = await Account.find().limit(20);
-            const list = accounts.map(a => `• ${a.username}: ${a.status} ${a.cooldownUntil > new Date() ? '(Cooled Down)' : ''}`).join('\n') || "None";
-            await interaction.reply(`Accounts Health Grid:\n${list}`);
         }
     },
     {
@@ -81,10 +101,11 @@ module.exports = (engine) => [
             .setDescription('Check total RAP of a user via Collectibles API')
             .addStringOption(opt => opt.setName('username').setDescription('Target username').setRequired(true)),
         async execute(interaction) {
+            await interaction.deferReply();
             const username = interaction.options.getString('username');
             try {
                 const userRes = await axios.post("https://users.roblox.com/v1/usernames/users", { usernames: [username] });
-                if (!userRes.data.data.length) return interaction.reply("User not found.");
+                if (!userRes.data.data.length) return interaction.editReply("User not found.");
                 const userId = userRes.data.data[0].id;
 
                 // Get a session for authenticated check
@@ -95,8 +116,8 @@ module.exports = (engine) => [
                 const invRes = await axios.get(`https://inventory.roblox.com/v1/users/${userId}/assets/collectibles?limit=100`, { headers });
                 const totalRap = invRes.data.data.reduce((acc, item) => acc + (item.recentAveragePrice || 0), 0);
 
-                await interaction.reply(`Inventory Check [${username}]:\nTotal RAP: ${totalRap.toLocaleString()}\nUnique Collectibles: ${invRes.data.data.length}\nChecked via: ${session ? session.username : 'Guest'}`);
-            } catch (err) { await interaction.reply(`Inventory Error: ${err.message}`); }
+                await interaction.editReply(`Inventory Check [${username}]:\nTotal RAP: ${totalRap.toLocaleString()}\nUnique Collectibles: ${invRes.data.data.length}\nChecked via: ${session ? session.username : 'Guest'}`);
+            } catch (err) { await interaction.editReply(`Inventory Error: ${err.message}`); }
         }
     },
     {
@@ -105,14 +126,15 @@ module.exports = (engine) => [
             .setDescription('Get user intelligence')
             .addStringOption(opt => opt.setName('username').setDescription('Target username').setRequired(true)),
         async execute(interaction) {
+            await interaction.deferReply();
             const username = interaction.options.getString('username');
             try {
                 const res = await axios.post("https://users.roblox.com/v1/usernames/users", { usernames: [username] });
-                if (!res.data.data.length) return interaction.reply("User not found.");
+                if (!res.data.data.length) return interaction.editReply("User not found.");
                 const id = res.data.data[0].id;
                 const detail = await axios.get(`https://users.roblox.com/v1/users/${id}`);
-                await interaction.reply(`Intelligence [${username}]:\nID: ${id}\nCreated: ${detail.data.created}\nDescription: ${detail.data.description || 'None'}`);
-            } catch (err) { await interaction.reply(`Scrape Error: ${err.message}`); }
+                await interaction.editReply(`Intelligence [${username}]:\nID: ${id}\nCreated: ${detail.data.created}\nDescription: ${detail.data.description || 'None'}`);
+            } catch (err) { await interaction.editReply(`Scrape Error: ${err.message}`); }
         }
     },
     {
@@ -131,7 +153,7 @@ module.exports = (engine) => [
             .addStringOption(opt => opt.setName('username').setDescription('Target username').setRequired(true)),
         async execute(interaction) {
             const username = interaction.options.getString('username');
-            await interaction.reply(`Profile Check [${username}]: Status: Active, Bio: Validated.`);
+            await interaction.reply(`Profile Check [${username}]: Status: active, Bio: Validated.`);
         }
     }
 ];
