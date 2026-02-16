@@ -1,31 +1,50 @@
-# Roblox-Mass-Reporter (v3.0) - Fatal Error Mitigation Build
+# 🤖 Roblox-Mass-Reporter (v3.0)
 
-A professional, industrial-grade Node.js suite for Roblox automation. Designed to bypass Auth Walls, handle Rate Limits gracefully, and manage distributed task queues.
+[![Deployment: Render](https://img.shields.io/badge/Deployment-Render-00b3b0?style=for-the-badge&logo=render)](https://render.com)
+[![Persistence: MongoDB](https://img.shields.io/badge/Persistence-MongoDB-47A248?style=for-the-badge&logo=mongodb)](https://www.mongodb.com/)
+[![Runtime: Node.js](https://img.shields.io/badge/Runtime-Node.js-339933?style=for-the-badge&logo=node.js)](https://nodejs.org/)
 
-## 🛠️ Logic Architecture
-
-1.  **Auth Wall Fix (CSRF Interceptor):** Automated 403-retry logic in `src/core/robloxClient.js`.
-2.  **Ghost Queue Fix (Database Persistence):** MongoDB Atlas integration for persistent target management.
-3.  **Rate Limit Blindness (429 Handling):** Per-account cooldown DB flagging with automatic rotation.
-4.  **Payload Modernization (V2 API):** Full support for modern JSON-based abuse reporting.
-5.  **Kill Switch:** Integrated `AbortController` linked to the `/terminate` command.
-
-## ⌨️ Command Suite
-
-- `/report`: Unified mass report entry.
-- `/inventory_check`: Calculates total RAP from Collectibles API.
-- `/terminate`: Immediate global abort of all active loops.
-- `/status`: Real-time system health telemetry.
-- `/accounts`: Health grid of active/cooled-down sessions.
-- `/scrape`: Targeted user intelligence.
-- `/logs`: Database activity history.
-- `/slowmode`: Real-time delay adjustment.
-- `/check_target`: Profile validation.
-
-## 🚀 Deployment
-
-- **Cloud:** Render.com (Detects `render.yaml`).
-- **Local:** PM2 (`pm2 start ecosystem.config.js`).
+**Roblox-Mass-Reporter** is a professional, industrial-grade automation suite designed for multi-account management and intelligent task execution. Built with a "Fatal Error Mitigation" philosophy, it bypasses traditional automation walls using advanced interceptors and persistent database queueing.
 
 ---
-**Security:** Full credentials are never logged. Sessions are authenticated via API before pool entry.
+
+## 🚀 Quick Start (Local Deployment)
+
+To run the bot locally on your PC (e.g., HP Laptop) with persistent management:
+
+1.  **Install Dependencies:**
+    ```bash
+    npm install
+    ```
+2.  **Configure Environment:**
+    Create a `.env` file and fill in your `MONGODB_URI` (Atlas), `DISCORD_TOKEN`, and `CLIENT_ID`.
+3.  **Start via PM2:**
+    ```bash
+    pm2 start ecosystem.config.js
+    ```
+4.  **Monitor Status:**
+    ```bash
+    pm2 logs Roblox-Mass-Reporter
+    ```
+
+---
+
+## 🛠️ Core Capabilities
+
+*   **Auth-Wall Bypass:** Automated 2026-Ready CSRF token refreshing.
+*   **Intelligent Rate Limiting:** 429 detection with per-account database cooldowns.
+*   **Hybrid Hosting:** Seamless transition between Local PC and Render Cloud.
+*   **Persistence Layer:** MongoDB Atlas backed target queue—never lose a task on restart.
+*   **V2 API Support:** Full integration with the modern Roblox Abuse Reporting protocol.
+
+---
+
+## 📚 Documentation
+
+For a full breakdown of all **9 Discord Commands**, internal logic, security features, and advanced setup guides, please refer to:
+
+👉 **[View Full Documentation (DOCUMENTATION.md)](./DOCUMENTATION.md)**
+
+---
+
+**Disclaimer:** This tool is for educational purposes only. Users are responsible for complying with the Terms of Service of any platforms accessed.
