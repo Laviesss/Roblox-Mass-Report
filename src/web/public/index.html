@@ -59,12 +59,11 @@
             options: { scales: { y: { beginAtZero: true } } }
         });
 
-        socket.on('queueUpdate', (data) => {
+        // Fixed Event Handler to match server emission
+        socket.on('dashboardUpdate', (data) => {
             const list = document.getElementById('queue-list');
-            list.innerHTML = data.map(item => `<li>${item.victimUsername} - ${item.currentCount}/${item.targetCount} (${item.status})</li>`).join('');
-        });
+            list.innerHTML = data.queue.map(item => `<li>${item.victimUsername} - ${item.currentCount}/${item.targetCount} (${item.status})</li>`).join('') || '<li>Queue is empty</li>';
 
-        socket.on('accountUpdate', (data) => {
             document.getElementById('account-status').innerText = `Active Sessions: ${data.activeCount}`;
         });
 

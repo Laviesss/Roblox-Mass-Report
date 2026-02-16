@@ -5,6 +5,7 @@ const AccountSchema = new mongoose.Schema({
     userId: String,
     cookie: String,
     status: { type: String, default: 'Active' },
+    cooldownUntil: { type: Date, default: null },
     lastUsed: { type: Date, default: Date.now },
     addedAt: { type: Date, default: Date.now }
 });

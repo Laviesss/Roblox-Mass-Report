@@ -6,7 +6,7 @@ const QueueSchema = new mongoose.Schema({
     targetCount: Number,
     currentCount: { type: Number, default: 0 },
     category: Number,
-    status: { type: String, default: 'Pending' },
+    status: { type: String, default: 'Pending' }, // Pending, In Progress, Completed, Failed, Terminated
     createdAt: { type: Date, default: Date.now }
 });
 

@@ -3,7 +3,7 @@ node_modules/
 cookies.txt
 *.log
 
-# Python artifacts (Purge Safety)
+# Legacy Python Artifacts (Purged)
 *.pyc
 __pycache__/
 venv/
