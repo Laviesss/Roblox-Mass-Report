@@ -1,7 +1,7 @@
 {
-  "name": "roblox-management-suite",
-  "version": "2.0.0",
-  "description": "Hybrid-Hosted Multi-Account Roblox Management Suite",
+  "name": "roblox-mass-reporter",
+  "version": "3.0.0",
+  "description": "Hybrid-Hosted Multi-Account Roblox-Mass-Reporter Suite",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",

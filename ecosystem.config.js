@@ -1,15 +1,10 @@
 module.exports = {
   apps: [{
-    name: "roblox-robot-suite",
+    name: "Roblox-Mass-Reporter",
     script: "./src/server.js",
     env_file: ".env",
-    watch: false,
-    autorestart: true,
     env: {
       NODE_ENV: "development"
-    },
-    env_production: {
-      NODE_ENV: "production"
     }
   }]
 };

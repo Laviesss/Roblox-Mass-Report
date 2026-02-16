@@ -1,4 +1,4 @@
-# Roblox Management Suite (v3.0) - Fatal Error Mitigation Build
+# Roblox-Mass-Reporter (v3.0) - Fatal Error Mitigation Build
 
 A professional, industrial-grade Node.js suite for Roblox automation. Designed to bypass Auth Walls, handle Rate Limits gracefully, and manage distributed task queues.
 

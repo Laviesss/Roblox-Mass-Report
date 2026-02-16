@@ -78,5 +78,5 @@ if (process.env.DISCORD_TOKEN && process.env.CLIENT_ID) {
 // Start Server
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`[System] Robot Suite active on port ${PORT}`);
+    console.log(`[System] Roblox-Mass-Reporter active on port ${PORT}`);
 });
