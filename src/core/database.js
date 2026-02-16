@@ -2,7 +2,11 @@ const mongoose = require('mongoose');
 
 const connectDB = async () => {
     try {
-        const conn = await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/roblox-management-suite');
+        const uri = process.env.MONGODB_URI;
+        if (!uri) {
+            throw new Error("MONGODB_URI not found in environment variables.");
+        }
+        const conn = await mongoose.connect(uri);
         console.log(`[Database] MongoDB Connected: ${conn.connection.host}`);
     } catch (err) {
         console.error(`[Database] Error: ${err.message}`);
