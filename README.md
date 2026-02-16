@@ -1,6 +1,6 @@
 # Roblox Management Suite (v2.0)
 
-A comprehensive, hybrid-hosted multi-account system for Roblox automation and mass reporting.
+A comprehensive, hybrid-hosted multi-account system for Roblox automation and mass reporting. **100% Node.js Architecture.**
 
 ## 🚀 Key Features
 
