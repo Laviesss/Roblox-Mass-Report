@@ -28,26 +28,36 @@ class ReportingEngine {
     }
 
     async forceResetCooldowns() {
-        await Account.updateMany(
-            {},
-            { $set: { status: 'active', cooldownUntil: null } }
-        );
-        console.log("[ReportingEngine] All account cooldowns have been reset.");
+        await Account.updateMany({}, { $set: { status: 'active', cooldownUntil: null } });
     }
 
+    // The Persistent Engine worker
     async processQueue() {
-        // Intelligent persistent engine loop with overlap protection
-        // Resume pending or in-progress tasks from the database
         const item = await Queue.findOne({ status: { $in: ['Pending', 'In Progress'] } }).sort({ createdAt: 1 });
         if (!item) return;
 
-        console.log(`[ReportingEngine] Checking persistent queue item: ${item.victimUsername}`);
+        // If it's already in progress and hasn't timed out, assume another process is handling it
+        // (Though in this architecture there's usually only one loop)
+        if (item.status === 'In Progress' && (Date.now() - item.updatedAt) < 300000) return;
 
-        // If it's been in 'In Progress' for too long, mark as failed
-        if (item.status === 'In Progress' && (Date.now() - item.updatedAt) > 600000) {
-            item.status = 'Failed';
-            await item.save();
+        console.log(`[Engine] Resuming/Starting task for: ${item.victimUsername}`);
+        item.status = 'In Progress';
+        await item.save();
+
+        // Find available accounts if fleet wasn't specified (fallback)
+        const accounts = await Account.find({
+            status: 'active',
+            $or: [{ cooldownUntil: null }, { cooldownUntil: { $lte: new Date() } }]
+        }).limit(item.targetCount - item.currentCount);
+
+        if (accounts.length === 0) {
+            console.log("[Engine] No accounts available for background task. Waiting...");
+            return;
         }
+
+        // Run the mass report logic (Simplified for background resume)
+        // In a real production system, item would store its fleet IDs.
+        await this.internalLoop(null, { id: item.victimId, username: item.victimUsername }, item.category, 5, accounts, false, item);
     }
 
     async executeMassReport(interaction, target, reasonKey, delaySec, fleetIds, isRandom) {
@@ -62,23 +72,20 @@ class ReportingEngine {
         });
 
         let accounts = await Account.find({ _id: { $in: fleetIds } });
+        await this.internalLoop(interaction, target, reasonKey, delaySec, accounts, isRandom, queueItem);
+    }
+
+    async internalLoop(interaction, target, reasonKey, delaySec, accounts, isRandom, queueItem) {
+        const mapping = typeof reasonKey === 'string' ? (this.reasonMap[reasonKey] || this.reasonMap["other"]) : { id: reasonKey, reason: "OtherRuleViolation", tags: ["other"] };
 
         if (isRandom) {
-            // Fisher-Yates Shuffle
             for (let i = accounts.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 [accounts[i], accounts[j]] = [accounts[j], accounts[i]];
             }
         }
 
-        const stats = {
-            success: 0,
-            failed: 0,
-            rateLimit: 0,
-            badSession: 0,
-            startTime: Date.now()
-        };
-
+        const stats = { success: 0, failed: 0, rateLimit: 0, badSession: 0, startTime: Date.now() };
         const controller = new AbortController();
         this.activeControllers.set(target.id, controller);
 
@@ -94,13 +101,9 @@ class ReportingEngine {
 
             const account = accounts[i];
             const client = createRobloxClient(account.cookie);
-            let csrfToken = null;
 
-            const sendReport = async (token = null) => {
-                const headers = {};
-                if (token) headers['x-csrf-token'] = token;
-
-                return await client.post(
+            try {
+                const res = await client.post(
                     "https://apis.roblox.com/abuse-reporting/v2/abuse-report",
                     {
                         "reportReason": mapping.reason,
@@ -108,28 +111,8 @@ class ReportingEngine {
                         "tags": mapping.tags,
                         "id": target.id
                     },
-                    {
-                        signal: controller.signal,
-                        headers: headers
-                    }
+                    { signal: controller.signal }
                 );
-            };
-
-            try {
-                let res;
-                try {
-                    res = await sendReport();
-                } catch (err) {
-                    if (err.response?.status === 403 && err.response.headers['x-csrf-token']) {
-                        // CSRF Guard: Wait user delay and retry once
-                        csrfToken = err.response.headers['x-csrf-token'];
-                        console.log(`[ReportingEngine] 403 for ${account.username}. Waiting ${delaySec}s before retry...`);
-                        await new Promise(r => setTimeout(r, delaySec * 1000));
-                        res = await sendReport(csrfToken);
-                    } else {
-                        throw err;
-                    }
-                }
 
                 if (res.status === 200) {
                     stats.success++;
@@ -147,11 +130,9 @@ class ReportingEngine {
                 const status = err.response?.status;
                 if (status === 429) {
                     stats.rateLimit++;
-                    const retryAfter = 600; // 10 minutes per SOP
                     account.status = 'cooldown';
-                    account.cooldownUntil = new Date(Date.now() + (retryAfter * 1000));
+                    account.cooldownUntil = new Date(Date.now() + 600000);
                     await account.save();
-                    console.log(`[ReportingEngine] 429 for ${account.username}. Cooldown for 10m.`);
                 } else if (status === 400 || status === 401) {
                     stats.badSession++;
                     account.status = 'dead';
@@ -163,33 +144,22 @@ class ReportingEngine {
                         category: mapping.id,
                         status: 'Failed',
                         errorCode: status,
-                        errorType: 'Token Error / Broken'
+                        errorType: 'Broken Session'
                     });
                 } else {
                     stats.failed++;
-                    await Report.create({
-                        victimId: target.id,
-                        victimUsername: target.username,
-                        reporterId: account.userId,
-                        category: mapping.id,
-                        status: 'Error',
-                        errorCode: status,
-                        errorType: err.message
-                    });
                 }
             }
 
-            // Progress Update (every 3s)
-            if (Date.now() - lastUpdate > 3000 || i === total - 1) {
+            // Progress Update every 3s
+            if (interaction && (Date.now() - lastUpdate > 3000 || i === total - 1)) {
                 lastUpdate = Date.now();
                 const progress = Math.round(((i + 1) / total) * 100);
                 const bar = "█".repeat(Math.floor(progress / 10)) + "░".repeat(10 - Math.floor(progress / 10));
-
                 const embed = new EmbedBuilder()
-                    .setTitle(`Reporting ${target.username}...`)
+                    .setTitle(`Working on ${target.username}...`)
                     .setDescription(`**Progress:** [${bar}] ${progress}%\n**Current:** ${i + 1} of ${total} accounts`)
                     .setColor('#f1c40f');
-
                 await interaction.editReply({ embeds: [embed], components: [] }).catch(() => {});
             }
 
@@ -205,34 +175,23 @@ class ReportingEngine {
 
         this.activeControllers.delete(target.id);
 
-        // Final After-Action Report
-        const duration = Math.floor((Date.now() - stats.startTime) / 1000);
-        const finalEmbed = new EmbedBuilder()
-            .setTitle('📊 After-Action Report')
-            .setColor('#2ecc71')
-            .addFields(
-                { name: 'Successes', value: `${stats.success}`, inline: true },
-                { name: 'Failures', value: `${stats.failed + stats.badSession}`, inline: true },
-                { name: 'Rate Limits (429)', value: `${stats.rateLimit}`, inline: true },
-                { name: 'Total Time', value: `${duration} seconds`, inline: true }
-            )
-            .setFooter({ text: 'Mission Summary' })
-            .setTimestamp();
-
-        await interaction.followUp({ embeds: [finalEmbed] });
-    }
-
-    async getAvailableSession() {
-        return await Account.findOne({
-            status: 'active',
-            $or: [{ cooldownUntil: null }, { cooldownUntil: { $lte: new Date() } }]
-        }).sort({ lastUsed: 1 });
+        if (interaction) {
+            const duration = Math.floor((Date.now() - stats.startTime) / 1000);
+            const finalEmbed = new EmbedBuilder()
+                .setTitle('📊 After-Action Report')
+                .setColor('#2ecc71')
+                .addFields(
+                    { name: 'Successes', value: `${stats.success}`, inline: true },
+                    { name: 'Failures', value: `${stats.failed + stats.badSession}`, inline: true },
+                    { name: 'Rate Limits', value: `${stats.rateLimit}`, inline: true },
+                    { name: 'Total Time', value: `${duration}s`, inline: true }
+                ).setTimestamp();
+            await interaction.followUp({ embeds: [finalEmbed] });
+        }
     }
 
     terminateAll() {
-        for (const controller of this.activeControllers.values()) {
-            controller.abort();
-        }
+        for (const controller of this.activeControllers.values()) controller.abort();
         this.activeControllers.clear();
     }
 }

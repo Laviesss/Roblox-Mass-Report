@@ -1,4 +1,3 @@
-const fs = require('fs');
 const Account = require('../models/Account');
 const axios = require('axios');
 
@@ -8,26 +7,23 @@ class SessionManager {
     }
 
     async loadSessions() {
-        // 1. Initial import from environment/files if present
-        let rawCookies = [];
+        // 1. Initial import from environment variables
         if (this.isRender) {
-            const cloudCookies = process.env.CLOUDS_COOKIES || "";
-            rawCookies = cloudCookies.split(/[,\n]/).map(c => c.trim()).filter(c => c.length > 0);
-        } else {
-            if (fs.existsSync('cookies.txt')) {
-                const data = fs.readFileSync('cookies.txt', 'utf8');
-                rawCookies = data.split('\n').map(c => c.trim()).filter(c => c.length > 0);
+            const cloudCookies = (process.env.CLOUDS_COOKIES || "").split(/[,\n]/).map(c => c.trim()).filter(c => c.length > 50);
+
+            if (cloudCookies.length > 0) {
+                console.log(`[SessionManager] Checking ${cloudCookies.length} environment cookies...`);
+                // Use a small concurrency limit or just check if already in DB
+                for (const cookie of cloudCookies) {
+                    // Quick check if cookie already exists in DB to avoid redundant API calls on every boot
+                    const exists = await Account.findOne({ cookie: cookie });
+                    if (!exists) {
+                        await this.addAccount(cookie);
+                    }
+                }
             }
         }
 
-        if (rawCookies.length > 0) {
-            console.log(`[SessionManager] Importing ${rawCookies.length} cookies from source...`);
-            for (const cookie of rawCookies) {
-                await this.addAccount(cookie);
-            }
-        }
-
-        // 2. Primary source is now the Database
         const activeCount = await Account.countDocuments({ status: 'active' });
         console.log(`[SessionManager] Total active Sessions in DB: ${activeCount}`);
     }
@@ -36,18 +32,11 @@ class SessionManager {
         try {
             const userInfo = await this.validateCookie(cookie);
             if (userInfo) {
-                const account = await Account.findOneAndUpdate(
+                return await Account.findOneAndUpdate(
                     { userId: userInfo.id },
-                    {
-                        username: userInfo.name,
-                        cookie: cookie,
-                        status: 'active', // Lowercase consistency
-                        last_checked: new Date()
-                    },
+                    { username: userInfo.name, cookie: cookie, status: 'active', last_checked: new Date() },
                     { upsert: true, new: true }
                 );
-                console.log(`[SessionManager] Account synced: ${userInfo.name}`);
-                return account;
             }
             return null;
         } catch (err) {
@@ -62,9 +51,7 @@ class SessionManager {
                 headers: { "Cookie": `.ROBLOSECURITY=${cookie}` }
             });
             return response.data;
-        } catch (err) {
-            return null;
-        }
+        } catch (err) { return null; }
     }
 
     async getRandomSession() {

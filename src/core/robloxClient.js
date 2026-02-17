@@ -10,11 +10,21 @@ const createRobloxClient = (cookie) => {
         timeout: 10000
     });
 
-    // Simple interceptor to pass through errors so the Engine can handle retries
+    // CSRF Interceptor
     robloxClient.interceptors.response.use(
         res => res,
-        err => {
-            // We just pass the error back. The Engine will check for status 403 and the x-csrf-token header.
+        async err => {
+            const { config, response } = err;
+
+            // If 403 CSRF error, grab new token and retry once
+            if (response?.status === 403 && response.headers['x-csrf-token']) {
+                console.log("[RobloxClient] 403 CSRF Detected. Retrying with new token...");
+                config.headers['x-csrf-token'] = response.headers['x-csrf-token'];
+                // We don't wait here because the Engine handles the delay between accounts,
+                // but for a single retry, immediate is usually fine if token was missing.
+                return robloxClient(config);
+            }
+
             return Promise.reject(err);
         }
     );
