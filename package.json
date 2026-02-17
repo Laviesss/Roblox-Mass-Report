@@ -1,7 +1,7 @@
 {
-  "name": "roblox-mass-reporter",
+  "name": "rmr-takedown-utility",
   "version": "3.0.0",
-  "description": "Hybrid-Hosted Multi-Account Roblox-Mass-Reporter Suite",
+  "description": "RMR - Professional Takedown Utility",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",

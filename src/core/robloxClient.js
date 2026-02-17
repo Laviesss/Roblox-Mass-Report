@@ -16,7 +16,7 @@ const createRobloxClient = (cookie, userAgent = null, proxy = null) => {
     const config = {
         headers,
         timeout: 15000,
-        validateStatus: (status) => status < 500 // Let engine handle 403/429/400
+        validateStatus: (status) => status < 500
     };
 
     if (proxy) {
@@ -27,7 +27,28 @@ const createRobloxClient = (cookie, userAgent = null, proxy = null) => {
         }
     }
 
-    return axios.create(config);
+    const client = axios.create(config);
+
+    // Mandator Logic Fix: 403 CSRF Retrier & 429 Interceptor
+    client.interceptors.response.use(async (response) => {
+        // Handle CSRF Handshake
+        if (response.status === 403 && response.headers['x-csrf-token']) {
+            const newToken = response.headers['x-csrf-token'];
+            const originalRequest = response.config;
+            originalRequest.headers['x-csrf-token'] = newToken;
+
+            // Log for internal tracking if needed
+            console.log(`[RMR] CSRF Handshake Triggered: Token Refreshed.`);
+
+            // Retry the original request once
+            return client(originalRequest);
+        }
+        return response;
+    }, (error) => {
+        return Promise.reject(error);
+    });
+
+    return client;
 };
 
 module.exports = createRobloxClient;

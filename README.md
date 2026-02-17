@@ -1,46 +1,42 @@
-# 🤖 Roblox-Mass-Reporter
+# 🤖 RMR | Roblox Mass Reporter
 
-A professional multi-account reporting suite built for stealth and stability. It automates the process of sending reports across multiple sessions with full fingerprinting and proxy support.
+**RMR (Roblox Mass Reporter)** is a modernized, professional-grade takedown utility built for Node.js. It features advanced stealth capabilities, a deep-scraping engine, and a persistent background worker.
 
----
+## 🚀 Key Features
+- **Modern Node.js V18+:** Fast, asynchronous, and reliable.
+- **V2 Abuse API:** Uses the latest Roblox reporting endpoints.
+- **Deep Scraper:** Automatically finds and reports all linked assets/games for a target.
+- **Stealth Suite:** Proxy Waterfalling (HTTP/SOCKS) and Sticky User-Agents.
+- **Persistence:** MongoDB Atlas integration for persistent queues and fleet management.
+- **Hybrid Hosting:** Ready for Render (Cloud) or PM2 (Local PC).
 
-## 🚀 Quick Setup (5 Steps)
+## 🛠️ Quick Start (Local PC)
 
-1.  **Clone & Install:** Download the project and run `npm install`.
-2.  **Database:** Create a free cluster on MongoDB Atlas and get your connection link.
-3.  **Bot Token:** Create a bot on the Discord Developer Portal and invite it to your server.
-4.  **Configure:** Copy `.env.example` to `.env` and fill in your keys.
-5.  **Launch:**
-    *   **Local:** Run `pm2 start ecosystem.config.js`.
-    *   **Cloud:** Connect your repo to Render.com and apply the blueprint.
+### 1. Requirements
+- **Node.js v18** or higher.
+- **MongoDB Atlas** (Free Tier is fine).
+- **Discord Bot Token**.
 
----
+### 2. Setup
+1. Clone this repository.
+2. Install dependencies:
+   ```bash
+   npm install
+   npm install pm2 -g
+   ```
+3. Create a `.env` file based on the environment variables needed (see Documentation).
 
-## ⚙️ Environment Keys
-
-You need these in your `.env` file:
-*   `DISCORD_TOKEN`: Your bot's secret key.
-*   `CLIENT_ID`: Your bot's ID.
-*   `MONGODB_URI`: Your database connection link.
-
----
-
-## 📊 Local Setup Workflow
-
-```mermaid
-graph TD
-    A[Install Node & PM2] --> B[Configure .env File]
-    B --> C[Run 'pm2 start ecosystem.config.js']
-    C --> D{Bot Status?}
-    D -- Online --> E[Monitor via 'pm2 monit']
-    D -- Error --> F[Check 'pm2 logs']
-    F --> B
+### 3. Launch with PM2
+```bash
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup
 ```
 
+## 📊 Management
+- `pm2 logs`: View real-time logs.
+- `pm2 monit`: Monitor CPU/Memory.
+- `/report`: Launch the takedown wizard in Discord.
+
 ---
-
-## 📚 Technical Manual
-
-For exhaustive details on the Proxy Detective, User-Agent Fingerprinting, and Step-by-Step setup:
-
-👉 **[View Full Documentation (DOCUMENTATION.md)](./DOCUMENTATION.md)**
+*Disclaimer: This tool is for educational purposes only.*

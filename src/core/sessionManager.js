@@ -1,4 +1,5 @@
 const Account = require('../models/Account');
+const UserAgent = require('../models/UserAgent');
 const axios = require('axios');
 
 class SessionManager {
@@ -12,7 +13,7 @@ class SessionManager {
             const cloudCookies = (process.env.CLOUDS_COOKIES || "").split(/[,\n]/).map(c => c.trim()).filter(c => c.length > 50);
 
             if (cloudCookies.length > 0) {
-                console.log(`[SessionManager] Checking ${cloudCookies.length} environment cookies...`);
+                console.log(`[RMR] Checking ${cloudCookies.length} environment cookies...`);
                 // Use a small concurrency limit or just check if already in DB
                 for (const cookie of cloudCookies) {
                     // Quick check if cookie already exists in DB to avoid redundant API calls on every boot
@@ -25,22 +26,41 @@ class SessionManager {
         }
 
         const activeCount = await Account.countDocuments({ status: 'active' });
-        console.log(`[SessionManager] Total active Sessions in DB: ${activeCount}`);
+        console.log(`[RMR] Total active Sessions in DB: ${activeCount}`);
     }
 
     async addAccount(cookie) {
         try {
             const userInfo = await this.validateCookie(cookie);
             if (userInfo) {
+                // Sticky User-Agent Marriage Logic
+                const existing = await Account.findOne({ userId: userInfo.id });
+                let userAgent = existing?.userAgent;
+
+                if (!userAgent) {
+                    const uaPool = await UserAgent.find({});
+                    if (uaPool.length > 0) {
+                        userAgent = uaPool[Math.floor(Math.random() * uaPool.length)].ua;
+                    } else {
+                        userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+                    }
+                }
+
                 return await Account.findOneAndUpdate(
                     { userId: userInfo.id },
-                    { username: userInfo.name, cookie: cookie, status: 'active', last_checked: new Date() },
+                    {
+                        username: userInfo.name,
+                        cookie: cookie,
+                        status: 'active',
+                        userAgent: userAgent,
+                        last_checked: new Date()
+                    },
                     { upsert: true, new: true }
                 );
             }
             return null;
         } catch (err) {
-            console.error(`[SessionManager] Failed to add account: ${err.message}`);
+            console.error(`[RMR] Failed to add account: ${err.message}`);
             return null;
         }
     }

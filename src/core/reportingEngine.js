@@ -34,7 +34,7 @@ class ReportingEngine {
         setInterval(async () => {
             const memoryUsage = process.memoryUsage().heapUsed / 1024 / 1024;
             if (memoryUsage > 450) {
-                console.warn(`[System] High Memory Alert: ${memoryUsage.toFixed(2)}MB. Flushing cache and restarting...`);
+                console.warn(`[RMR] High Memory Alert: ${memoryUsage.toFixed(2)}MB. Flushing cache and restarting...`);
                 // Flush is handled by MongoDB persistence.
                 // In Render, we just exit and let the service reboot.
                 process.exit(1);
@@ -43,6 +43,11 @@ class ReportingEngine {
     }
 
     setSocketIO(io) { this.io = io; }
+
+    log(message) {
+        console.log(`[RMR] ${message}`);
+        if (this.io) this.io.emit('log', message);
+    }
 
     async init() { await this.sessionManager.loadSessions(); }
 
@@ -74,7 +79,7 @@ class ReportingEngine {
         const item = await Queue.findOne({ status: 'Pending' }).sort({ createdAt: 1 });
         if (!item) return;
 
-        console.log(`[Engine] Picking up task: ${item.targetName} (${item.targetId})`);
+        this.log(`Picking up task: ${item.targetName} (${item.targetId})`);
         item.status = 'In Progress';
         await item.save();
 
@@ -117,7 +122,7 @@ class ReportingEngine {
             // Gamepasses
             const passesRes = await axios.get(`https://games.roblox.com/v1/games/${universeId}/game-passes?limit=100`);
             passesRes.data.data.forEach(gp => targets.push({ id: gp.id, name: gp.name, type: 'ASSET' }));
-        } catch (err) { console.error(`[Scraper] Game Scrape Fail: ${err.message}`); }
+        } catch (err) { console.error(`[RMR] Game Scrape Fail: ${err.message}`); }
         return targets;
     }
 
@@ -134,7 +139,7 @@ class ReportingEngine {
             // Group Store
             const storeRes = await axios.get(`https://catalog.roblox.com/v1/search/items/details?CreatorTargetId=${groupId}&CreatorType=Group&Limit=30`);
             storeRes.data.data.forEach(i => targets.push({ id: i.id, name: i.name, type: 'ASSET' }));
-        } catch (err) { console.error(`[Scraper] Group Scrape Fail: ${err.message}`); }
+        } catch (err) { console.error(`[RMR] Group Scrape Fail: ${err.message}`); }
         return targets;
     }
 
@@ -143,7 +148,7 @@ class ReportingEngine {
         try {
             const res = await axios.get(`https://catalog.roblox.com/v1/search/items/details?CreatorTargetId=${userId}&CreatorType=User&Limit=30`);
             res.data.data.forEach(i => targets.push({ id: i.id, name: i.name, type: 'ASSET' }));
-        } catch (err) { console.error(`[Scraper] User Scrape Fail: ${err.message}`); }
+        } catch (err) { console.error(`[RMR] User Scrape Fail: ${err.message}`); }
         return targets;
     }
 
@@ -152,6 +157,7 @@ class ReportingEngine {
         let targets = [{ id: mainTarget.id, name: mainTarget.username, type: mainTarget.type }];
 
         if (isFullWipe) {
+            this.log(`Deep Scraper Active for ${mainTarget.username}`);
             if (interaction) await interaction.editReply({ content: "🔍 **Deep Scraper Active...** Finding all linked assets, places, and badges.", embeds: [], components: [] });
             if (mainTarget.type === 'GAME') targets = await this.scrapeGame(mainTarget.id);
             else if (mainTarget.type === 'GROUP') targets = await this.scrapeGroup(mainTarget.id);
@@ -227,6 +233,7 @@ class ReportingEngine {
                     qItem.status = 'Success';
                     qItem.verificationId = `VER-${Math.floor(Math.random() * 1000000)}`;
                     stats.success++;
+                    this.log(`Report Success: ${qItem.targetName}`);
                 } else if (res.status === 429) {
                     qItem.status = 'Cooldown';
                     stats.rateLimit++;

@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: roblox-management-suite
+    name: rmr-takedown-utility
     env: node
     plan: free
     buildCommand: npm install

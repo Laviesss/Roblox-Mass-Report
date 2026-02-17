@@ -1,15 +1,15 @@
 module.exports = {
-  apps: [{
-    name: "Roblox-Mass-Reporter",
+  apps : [{
+    name: "RMR-Takedown-Utility",
     script: "./src/server.js",
     watch: false,
     autorestart: true,
-    env_file: ".env",
+    max_memory_restart: '450M',
     env: {
-      NODE_ENV: "development"
+      NODE_ENV: "production",
     },
-    env_production: {
-      NODE_ENV: "production"
-    }
+    error_file: "./logs/err.log",
+    out_file: "./logs/out.log",
+    log_date_format: "YYYY-MM-DD HH:mm:ss"
   }]
 };

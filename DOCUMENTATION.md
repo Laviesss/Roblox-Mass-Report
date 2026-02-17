@@ -1,87 +1,108 @@
-# 📚 Complete Architectural Manual: Universal Takedown System
+# RMR | Exhaustive Technical Manual & Architecture Deep-Dive
 
-This manual explains the inner workings of the Roblox Management Suite. It covers the stealth engine, cloud infrastructure, and the universal reporting logic.
-
----
-
-## ☁️ 1. Cloud Infrastructure & Persistence (The Engine)
-
-The bot is built to work on the **Render Free Tier** without needing any paid plans. We do this by managing resources very carefully.
-
-### A. Render Configuration (The Blueprint)
-*   **The Blueprint Fix:** The `render.yaml` file tells Render exactly how to build and run the bot. It is hard-coded to use the **Free** plan for every service.
-*   **Express Port Binding:** Render monitors the bot to see if it is "alive." We use a small web server (Express) that listens on `0.0.0.0:${PORT}`. If the bot doesn't answer this "handshake" within 60 seconds, Render will reboot it.
-*   **Memory Watcher:** The Free Tier gives us 512MB of RAM. If the bot uses more than 450MB during a massive scrape, it will automatically pause its work, save everything to MongoDB, and restart itself to clear the memory.
-
-### B. MongoDB "Resume" Logic
-*   **Target Queueing:** We never store your targets in the bot's temporary memory. Every ID found (Games, Assets, Badges) is written into the `target_queue` collection in your database.
-*   **Fault Tolerance:** If Render reboots the bot, it checks the `target_queue` as soon as it starts up. If it finds unfinished work, it resumes automatically and picks up exactly where it stopped.
+## 1. Introduction
+The **RMR (Roblox Mass Reporter)** is a professional-grade utility designed for high-concurrency, persistent, and stealthy abuse reporting on the Roblox platform. This manual provides an in-depth look at the architecture, the reporting engine, stealth mechanisms, and deployment strategies.
 
 ---
 
-## 🌐 2. Proxies & User-Agents (Stealth & Identity)
+## 2. System Architecture
 
-To keep your accounts safe, the bot uses a "Disguise Kit." This makes every account look like a unique person on a real computer.
+### 2.1 Technology Stack
+- **Runtime:** Node.js v18.x (utilizing native `fetch` and advanced `async/await` patterns).
+- **Database:** MongoDB Atlas (M0 Free Tier or higher). Used for session persistence, proxy management, and task queuing.
+- **Process Manager:** PM2 for local persistence or Render for cloud hosting.
+- **Communication:** Discord.js v14 for the primary Command & Control (C2) interface.
 
-### A. The Proxy "Waterfall" Detective
-When you upload proxies, the bot doesn't trust the labels you give them. It runs a **Triple-Stage Protocol Test**:
-1.  **Stage 1 (HTTP/HTTPS):** It tries to visit Roblox using the proxy as a standard web agent. If it works, it stops and marks the proxy as HTTP.
-2.  **Stage 2 (SOCKS5):** If HTTP fails, it tries the SOCKS5 protocol. This is much better for bypassing strict blocks.
-3.  **Stage 3 (SOCKS4):** If both fail, it makes one last try with the older SOCKS4 protocol.
-If all three fail, the proxy is marked as **Dead**. You can clean these out by clicking the [ 🗑️ Purge Dead ] button.
-
-### B. Sticky User-Agent "Marriage"
-*   **The Fingerprint Bank:** You upload a list of browser strings (like Chrome on Windows or Safari on Mac) via the `/useragents` command.
-*   **The Marriage Logic:** When you add a Roblox account, the bot picks one random browser string from your list and saves it directly into that account’s database file.
-*   **The Result:** That account will **always** use that same browser identity. To Roblox, it looks like that "person" is always using the same laptop, which prevents them from flagging the account as a bot.
-
----
-
-## 🕹️ 3. The Universal /report Command Center
-
-The `/report` command is a high-speed takedown machine with four stages:
-
-### Stage 1: Multi-Category Selection
-You first pick what you want to target:
-*   **User Profile:** For banning a specific person.
-*   **Marketplace Asset:** For shirts, pants, hats, and models.
-*   **Experience (Game):** For places and game worlds.
-*   **Group Entity:** For wiping an entire clothing or game studio.
-
-### Stage 2: The "Deep Scraper" Engine
-If you choose "Full Wipe," the bot finds everything linked to your target:
-*   **Games:** It finds the lobby, every level (linked places), all Badges, and all Gamepasses.
-*   **Groups:** It scrapes the entire Group Store and every game they own.
-*   **Users:** It searches the creator’s inventory for every public item they’ve made.
-
-### Stage 3: Success Proof & Evidence
-The bot doesn't just send a request and hope it worked. It validates the response:
-*   **Response Validation:** It captures the raw data from Roblox's server.
-*   **Log ID:** For every successful report, it generates a "Verification ID."
-*   **Proof Ticker:** The progress bar shows a live feed of which items were successfully hit and verified.
-
-### Stage 4: Automated Execution Loop
-Once you hit [START], the bot begins:
-1.  **CSRF Handshake:** It sends a dummy request to get a security token from Roblox.
-2.  **Identity Rotation:** It pulls an account, injects its "Sticky" browser string, and picks a fresh proxy.
-3.  **Human Jitter:** It adds a random amount of time (offsets) to your delay so the speed isn't perfectly consistent.
-4.  **429 Handling:** If Roblox says "Too Many Requests," the bot puts that account on a 10-minute break and swaps in a fresh one immediately.
+### 2.2 Data Models
+- **Account:** Stores `.ROBLOSECURITY` cookies, linked User-Agents, and cooldown timestamps. This model ensures that account "health" is tracked across reboots.
+- **Proxy:** Stores IP, Port, Protocol, and Latency data. It tracks the last time a proxy was used to ensure an even distribution of traffic.
+- **UserAgent:** A pool of high-entropy browser strings collected from modern browser versions (Chrome, Firefox, Safari) to prevent fingerprinting.
+- **Queue:** A persistent task list that allows the bot to resume operations after a crash or reboot. Each entry tracks the target, the current state, and the account assigned.
+- **Report:** A ledger of historical reporting actions for auditing. It captures success/failure rates and error codes from the Roblox API.
 
 ---
 
-## 📄 4. The Audit Log
+## 3. The Reporting Engine (V2 API)
 
-After a massive run (especially for 100+ items), the bot sends you a record of the damage.
+Roblox migrated to a "V2" Abuse Reporting API which is significantly more robust than previous iterations. RMR handles this through a multi-stage handshake.
 
-### The Automated Audit Report
-*   **Post-Operation DM:** Once the queue is empty, the bot will DM you a `.txt` file.
-*   **The Contents:** It shows every Target ID, the Outcome (Success/Fail), the exact Response Code from Roblox, and which Account/Proxy was used.
-*   **The Clean-Up:** After sending the log, the bot wipes the temporary data to keep your database lean.
+### 3.1 CSRF Management
+Roblox APIs require an `X-XSRF-TOKEN` (often referred to as CSRF). RMR handles this by:
+1. Attempting a "dummy" request to the reporting endpoint (`/abuse-report`).
+2. Catching the `403 Forbidden` response.
+3. Extracting the token from the `x-csrf-token` response header.
+4. Injecting that token into all subsequent requests in the burst.
+5. The system periodically refreshes this token if it detects a 403 response during active reporting.
+
+### 3.2 Deep Scraper Logic
+RMR features a recursive scraper that allows for "Full Wipe" operations.
+- **User Scraper:** Scrapes the user's public inventory via the Catalog API to find every asset they have created. It looks for Shirts, Pants, Decals, and Models.
+- **Group Scraper:** Iterates through every game owned by a group. It then cascades into the Experience Scraper for each game found, while also scanning the Group Store for clothing items.
+- **Experience Scraper:** Targets the Universe ID, then resolves all Place IDs (Start Places and Sub-places), Badges, and Gamepasses associated with that experience. This ensures that even if the main game is taken down, the associated monetized assets are also flagged.
 
 ---
 
-## ⌨️ 5. UI & Interaction Rules
+## 4. Stealth & Disguise Suite
 
-*   **Deferral is Law:** Every button you click tells the bot to "Wait and Think." This prevents the "Application Did Not Respond" error.
-*   **Unified Look:** Every menu (/proxies, /useragents, /accounts) looks and acts the same way.
-*   **Live Progress:** The report dashboard updates every 5 seconds with a visual progress bar [ 🟦🟦🟦⬜️⬜️ ] and a live count of successes.
+To prevent detection and shadowbanning, RMR employs several advanced techniques.
+
+### 4.1 Proxy Waterfall Detective
+Not all proxies are created equal. RMR's proxy engine performs a "Waterfall" check on every imported proxy:
+- It tests the IP against `roblox.com` using **HTTPS**, then **SOCKS5**, then **SOCKS4**.
+- It automatically detects the highest-performing protocol and saves it to the database.
+- It calculates latency (ping) and stores it, allowing the engine to prioritize faster proxies during high-speed operations.
+- Dead proxies are automatically flagged and can be purged via the `/proxies` dashboard.
+
+### 4.2 Sticky User-Agents (Identity Marriage)
+Static User-Agents are a major red flag. However, constantly changing User-Agents for the same account is also suspicious.
+- RMR "marries" an account to a specific User-Agent upon first link.
+- This identity is stored in MongoDB.
+- Every time that account is used, it uses its "married" browser string, simulating a consistent device profile. This mimics a real user who typically accesses the site from the same browser.
+
+### 4.3 Jitter and Cooldowns
+- **Jitter:** Every request has a randomized "Jitter" delay (0.1s to 0.5s) added to the user-defined delay. This breaks the rhythmic pattern of automation that anti-bot systems look for.
+- **Cooldowns:** Accounts are automatically placed on a 10-minute cooldown after a successful report to prevent "burst" detection on a single account. This helps maintain the longevity of your fleet.
+
+---
+
+## 5. Persistence & Reliability
+
+### 5.1 Background Worker
+RMR features an autonomous background worker that runs every 10 seconds. It scans the `target_queue` in MongoDB for any "Pending" tasks. If a task was interrupted by a server restart or a crash, the worker picks it up and continues from the exact point of failure. This makes the system "set and forget."
+
+### 5.2 Memory Watcher (Anti-OOM)
+On environments like Render (Free Tier), memory is capped at 512MB.
+- RMR monitors its own `heapUsed` and `rss` memory.
+- If memory usage exceeds 450MB, it triggers a "Graceful Exit."
+- Since the queue is persistent in MongoDB, the process restarts (handled by PM2 or Render), clears its memory, and resumes the task without losing progress.
+
+---
+
+## 6. Discord Interface (C2)
+
+The bot is controlled entirely through Discord Slash Commands, providing a sleek and modern Command & Control (C2) experience:
+- `/report`: A 5-stage interactive wizard (Domain -> Scraper -> Reason -> Delay -> Fleet).
+- `/accounts`: A dashboard for linking cookies and managing the fleet health.
+- `/proxies`: Bulk upload and health check system with automated protocol detection.
+- `/useragents`: Manage the identity pool used for browser fingerprinting.
+- `/terminate`: Global kill-switch for all active loops.
+
+---
+
+## 7. Troubleshooting & Error Codes
+
+When reviewing Audit Logs, you may see various HTTP status codes:
+- **200 OK:** The report was successfully submitted and received by Roblox.
+- **403 Forbidden:** Usually indicates a CSRF mismatch. RMR handles this automatically by refreshing the token.
+- **429 Too Many Requests:** You are being rate-limited. Increase the delay in your `/report` command or add more accounts to your fleet.
+- **401 Unauthorized:** The `.ROBLOSECURITY` cookie has expired or been invalidated. The account will be marked "Dead" in the dashboard.
+
+## 8. Operational Guidelines
+1. **Fleet Size:** A minimum of 5-10 accounts is recommended for effective mass reporting. The more accounts you have, the lower the risk to each individual account.
+2. **Proxy Quality:** High-quality SOCKS5 proxies are significantly more effective than public HTTP proxies. Residential proxies are the "gold standard" for stealth.
+3. **Delay Settings:** For maximum stealth, a delay of 5-10 seconds per report is recommended. For speed, 1-2 seconds is viable but increases the risk of rate-limiting.
+4. **Audit Logs:** Always review the `.txt` audit log sent to your DMs after a mission. It contains the exact Roblox response codes and verification IDs, which are vital for tracking your success.
+
+---
+*RMR: Professional Takedown Utility. Designed for speed, built for persistence.*
+*© 2024 RMR Development Group. All Rights Reserved.*
