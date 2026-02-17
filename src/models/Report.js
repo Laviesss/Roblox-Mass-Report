@@ -7,6 +7,8 @@ const ReportSchema = new mongoose.Schema({
     category: Number,
     comment: String,
     status: String,
+    errorCode: Number,
+    errorType: String,
     timestamp: { type: Date, default: Date.now }
 });
 

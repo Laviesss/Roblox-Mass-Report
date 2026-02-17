@@ -1,78 +1,44 @@
-# 📖 Roblox-Mass-Reporter Technical Manual (v3.2)
+# 📚 User Manual: Roblox-Mass-Reporter
 
-This documentation provides an exhaustive breakdown of the features, commands, and logic architecture powering the **Roblox-Mass-Reporter**.
-
----
-
-## 🏛️ Core Architecture
-
-### 1. The Atlas-First Philosophy
-The suite has moved away from local files like `cookies.txt`.
-*   **Source of Truth:** All account sessions and task queues are stored in **MongoDB Atlas**.
-*   **Security:** Cookies are never written to disk. They are added via the **Secure Modal** and retrieved directly by the engine from the database.
-*   **Synchronization:** If you run multiple instances (e.g., local and cloud), they stay perfectly synced via the shared Atlas cluster.
-
-### 2. The Interactive Command Center
-The `/accounts` command triggers a component-based UI.
-*   **Embed Stats:** Live counts of Total, active, cooldown, and dead sessions.
-*   **Select Menu Filtering:** Filter the view to specifically see "Active Only" or "Dead Only" accounts.
-*   **Modal Trigger:** The "Add New Account" button launches a native Discord popup for secure data entry.
+This document explains how the bot works and what each part does in simple language.
 
 ---
 
-## ⌨️ Command Intelligence
+## 🛠️ Core Features
 
-### Tactical & Operational
-*   **`/accounts`**: The heart of the suite. View health and add accounts.
-*   **`/report [username] [amount] [category]`**:
-    *   Resolves username to ID via Users API.
-    *   Creates a persistent task in the `Queue` collection.
-    *   Reporting loop picks up the task immediately.
-*   **`/terminate`**:
-    *   Sends a `controller.abort()` signal to every active report loop.
-    *   Marks the DB queue item as 'Terminated'.
-    *   Stops all network activity instantly.
+### 1. Smart Reporting Engine
+The bot doesn't just send reports blindly. It has "brains" to handle common problems:
+*   **Wait and Retry:** If Roblox tells the bot to wait (CSRF errors), it waits 2 seconds and tries again automatically.
+*   **Break Detection:** If an account's session is broken (Error 400), the bot marks it as "Broken" and stops using it so it doesn't waste time.
+*   **Rate Limits:** If the bot is sending reports too fast, it will automatically put that account on "Cooldown" and switch to a different one.
 
-### Intelligence Gathering
-*   **`/inventory_check [username]`**:
-    *   Scans the **Roblox Collectibles API**.
-    *   Identifies all limited items.
-    *   Sums the **RAP (Recent Average Price)** to determine target value.
-*   **`/scrape [username]`**:
-    *   Extracts account creation date, bio, and exact UserID.
-*   **`/check_target [username]`**:
-    *   Validates if a target profile is still active or if account actions have already been taken.
+### 2. Interactive Reporting (/report)
+Reporting a user is now a simple 5-step process:
+1.  **Check Target:** See the person's profile, how old their account is, and if they are online.
+2.  **Pick Reason:** Choose from 10 clear reasons like "Bullying" or "Scamming".
+3.  **Set Speed:** Decide how many seconds to wait between reports (1s to 15s).
+4.  **Pick Accounts:** Select exactly which accounts from your database you want to use. You can scroll through pages if you have many.
+5.  **Choose Style:** Run them in order or randomize them to be less predictable.
 
-### System Management
-*   **`/status`**: Real-time telemetry showing uptime, active threads, and DB connectivity.
-*   **`/logs`**: Fetch the most recent successful reporting entries from the history collection.
-*   **`/slowmode [seconds]`**: Adjusts the delay between requests to fine-tune rate-limit evasion.
+### 3. History Dashboard (/reports)
+Keep track of what your bot has been doing:
+*   **Stats:** See total successful reports and how many accounts are currently broken or waiting.
+*   **Recent History:** Look at the last 15 people reported.
+*   **Failed Reports:** See exactly which reports failed so you can fix your accounts.
+*   **Search:** Type a username to see every time the bot has reported that specific person.
 
 ---
 
-## 🧠 Mitigation Logic
+## 🛡️ Security & Safety
 
-### 1. The Auth Wall Bypass
-Roblox uses an `X-CSRF-TOKEN` handshake.
-*   **Problem:** Tokens expire and requests fail with 403.
-*   **Fix:** The suite uses an **Axios Response Interceptor**. If a 403 occurs, it pulls the new token from the response header, updates the client, and retries the request automatically.
-
-### 2. Rate Limit (429) Handling
-*   **Action:** When a `429 Too Many Requests` is detected, the suite extracts the `Retry-After` time.
-*   **DB Update:** The specific account is flagged with a `cooldownUntil` timestamp.
-*   **Rotation:** The suite instantly swaps to the next available account in your pool that is not in cooldown.
-
-### 3. Ghost Queue Prevention
-*   **Problem:** Process crashes lose pending tasks.
-*   **Fix:** Every task is a MongoDB document. Upon restart, the engine queries for items with status `Pending` or `In Progress` and resumes them automatically.
+*   **Kill Switch:** Use `/terminate` at any time to instantly stop all active reporting loops.
+*   **Private Info:** The bot uses Discord "Modals" for adding accounts. This means your cookies are never typed into a public chat where others can see them.
+*   **Safe Logs:** The bot never prints your full cookies in the logs. It only shows usernames or IDs to keep you safe.
 
 ---
 
-## 🛡️ Security Protocols
+## 🚀 Pro Tips
 
-*   **Credential Masking:** Raw cookies are never displayed in logs or Discord. Only usernames/IDs appear.
-*   **Ephemeral Responses:** The "Add Account" modal and results are sent as **Ephemeral Messages**, meaning only the user who triggered the command can see the sensitive interaction.
-*   **Git Hardening:** `.gitignore` is configured to prevent accidental leakage of `.env` or legacy data files.
-
----
-**Build v3.2.0** - Refactored by Automation Architect
+*   **Use Delays:** Don't always use the 1-second delay. Using 5s or 10s makes the reporting look more natural and helps avoid rate limits.
+*   **Monitor Logs:** Use `pm2 logs` on your computer to see real-time progress and detailed error messages if something isn't working.
+*   **Check Accounts:** Regularly use `/reports` to see if any of your accounts have been marked as "Broken". You'll need to replace those cookies using the `/accounts` menu.
