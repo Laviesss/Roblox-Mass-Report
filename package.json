@@ -1,5 +1,5 @@
 {
-  "name": "rmr-takedown-utility",
+  "name": "rmr",
   "version": "3.0.0",
   "description": "RMR - Professional Takedown Utility",
   "main": "src/server.js",

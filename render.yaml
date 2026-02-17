@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: rmr-takedown-utility
+    name: rmr
     env: node
     plan: free
     buildCommand: npm install
