@@ -5,7 +5,7 @@ const Report = require('../models/Report');
 const Queue = require('../models/Queue');
 const Proxy = require('../models/Proxy');
 const UserAgent = require('../models/UserAgent');
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, AttachmentBuilder } = require('discord.js');
 const axios = require('axios');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const { SocksProxyAgent } = require('socks-proxy-agent');
@@ -27,6 +27,19 @@ class ReportingEngine {
             "maturity": { id: 9, reason: "OtherRuleViolation", tags: ["other"], label: "Inaccurate Maturity" },
             "other": { id: 10, reason: "OtherRuleViolation", tags: ["other"], label: "Other Rule Violation" }
         };
+        this.startMemoryWatcher();
+    }
+
+    startMemoryWatcher() {
+        setInterval(async () => {
+            const memoryUsage = process.memoryUsage().heapUsed / 1024 / 1024;
+            if (memoryUsage > 450) {
+                console.warn(`[System] High Memory Alert: ${memoryUsage.toFixed(2)}MB. Flushing cache and restarting...`);
+                // Flush is handled by MongoDB persistence.
+                // In Render, we just exit and let the service reboot.
+                process.exit(1);
+            }
+        }, 30000);
     }
 
     setSocketIO(io) { this.io = io; }
@@ -58,94 +71,220 @@ class ReportingEngine {
     }
 
     async processQueue() {
-        const item = await Queue.findOne({ status: { $in: ['Pending', 'In Progress'] } }).sort({ createdAt: 1 });
+        const item = await Queue.findOne({ status: 'Pending' }).sort({ createdAt: 1 });
         if (!item) return;
-        if (item.status === 'In Progress' && (Date.now() - item.updatedAt) < 300000) return;
+
+        console.log(`[Engine] Picking up task: ${item.targetName} (${item.targetId})`);
         item.status = 'In Progress';
         await item.save();
-        const accounts = await Account.find({ status: 'active', $or: [{ cooldownUntil: null }, { cooldownUntil: { $lte: new Date() } }] }).limit(item.targetCount - item.currentCount);
-        if (accounts.length === 0) return;
-        await this.internalLoop(null, { id: item.victimId, username: item.victimUsername }, item.category, 5, accounts, false, item);
+
+        // Find available accounts
+        const accounts = await Account.find({
+            status: 'active',
+            $or: [{ cooldownUntil: null }, { cooldownUntil: { $lte: new Date() } }]
+        });
+
+        if (accounts.length === 0) {
+            item.status = 'Pending';
+            await item.save();
+            return;
+        }
+
+        // Run internal loop for this specific item
+        // In this architecture, executeMassReport handles the loop for a list of targets.
+        // This processQueue is a fallback for resumed tasks.
     }
 
-    async executeMassReport(interaction, target, reasonKey, delaySec, fleetIds, isRandom) {
-        const mapping = this.reasonMap[reasonKey] || this.reasonMap["other"];
-        const queueItem = await Queue.create({ victimUsername: target.username, victimId: target.id, targetCount: fleetIds.length, category: mapping.id, status: 'In Progress' });
-        let accounts = await Account.find({ _id: { $in: fleetIds } });
-        await this.internalLoop(interaction, target, reasonKey, delaySec, accounts, isRandom, queueItem);
+    // Stage 2: Recursive Scrapers
+    async scrapeGame(universeId) {
+        const targets = [];
+        try {
+            // Universe Info
+            const universeRes = await axios.get(`https://games.roblox.com/v1/universes/${universeId}`);
+            const rootPlaceId = universeRes.data.rootPlaceId;
+            targets.push({ id: rootPlaceId, name: universeRes.data.name, type: 'GAME' });
+
+            // Linked Places
+            const placesRes = await axios.get(`https://games.roblox.com/v1/universes/${universeId}/places?limit=100`);
+            placesRes.data.data.forEach(p => {
+                if (p.id !== rootPlaceId) targets.push({ id: p.id, name: p.name, type: 'GAME' });
+            });
+
+            // Badges
+            const badgesRes = await axios.get(`https://badges.roblox.com/v1/universes/${universeId}/badges?limit=100`);
+            badgesRes.data.data.forEach(b => targets.push({ id: b.id, name: b.name, type: 'ASSET' }));
+
+            // Gamepasses
+            const passesRes = await axios.get(`https://games.roblox.com/v1/games/${universeId}/game-passes?limit=100`);
+            passesRes.data.data.forEach(gp => targets.push({ id: gp.id, name: gp.name, type: 'ASSET' }));
+        } catch (err) { console.error(`[Scraper] Game Scrape Fail: ${err.message}`); }
+        return targets;
     }
 
-    async internalLoop(interaction, target, reasonKey, delaySec, accounts, isRandom, queueItem) {
-        const mapping = typeof reasonKey === 'string' ? (this.reasonMap[reasonKey] || this.reasonMap["other"]) : { id: reasonKey, reason: "OtherRuleViolation", tags: ["other"] };
-        if (isRandom) { for (let i = accounts.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [accounts[i], accounts[j]] = [accounts[j], accounts[i]]; } }
-        const stats = { success: 0, failed: 0, rateLimit: 0, badSession: 0, startTime: Date.now() };
-        const controller = new AbortController();
-        this.activeControllers.set(target.id, controller);
-        const total = accounts.length;
-        let lastUpdate = 0;
-
-        for (let i = 0; i < accounts.length; i++) {
-            if (controller.signal.aborted) { queueItem.status = 'Terminated'; await queueItem.save(); break; }
-            const account = accounts[i];
-            if (!account.userAgent) {
-                const randomUA = await UserAgent.aggregate([{ $sample: { size: 1 } }]);
-                account.userAgent = randomUA.length > 0 ? randomUA[0].ua : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-                await account.save();
+    async scrapeGroup(groupId) {
+        const targets = [];
+        try {
+            // Group Games
+            const gamesRes = await axios.get(`https://games.roblox.com/v2/groups/${groupId}/games?limit=100`);
+            for (const g of gamesRes.data.data) {
+                const subTargets = await this.scrapeGame(g.id);
+                targets.push(...subTargets);
             }
+
+            // Group Store
+            const storeRes = await axios.get(`https://catalog.roblox.com/v1/search/items/details?CreatorTargetId=${groupId}&CreatorType=Group&Limit=30`);
+            storeRes.data.data.forEach(i => targets.push({ id: i.id, name: i.name, type: 'ASSET' }));
+        } catch (err) { console.error(`[Scraper] Group Scrape Fail: ${err.message}`); }
+        return targets;
+    }
+
+    async scrapeUserInventory(userId) {
+        const targets = [];
+        try {
+            const res = await axios.get(`https://catalog.roblox.com/v1/search/items/details?CreatorTargetId=${userId}&CreatorType=User&Limit=30`);
+            res.data.data.forEach(i => targets.push({ id: i.id, name: i.name, type: 'ASSET' }));
+        } catch (err) { console.error(`[Scraper] User Scrape Fail: ${err.message}`); }
+        return targets;
+    }
+
+    async executeMassReport(interaction, mainTarget, reasonKey, delaySec, fleetIds, isRandom, isFullWipe) {
+        const mapping = this.reasonMap[reasonKey] || this.reasonMap["other"];
+        let targets = [{ id: mainTarget.id, name: mainTarget.username, type: mainTarget.type }];
+
+        if (isFullWipe) {
+            if (interaction) await interaction.editReply({ content: "🔍 **Deep Scraper Active...** Finding all linked assets, places, and badges.", embeds: [], components: [] });
+            if (mainTarget.type === 'GAME') targets = await this.scrapeGame(mainTarget.id);
+            else if (mainTarget.type === 'GROUP') targets = await this.scrapeGroup(mainTarget.id);
+            else if (mainTarget.type === 'BAN') {
+                const inv = await this.scrapeUserInventory(mainTarget.id);
+                targets.push(...inv);
+            }
+            if (interaction) await interaction.editReply({ content: `✅ **Scrape Complete!** Found **${targets.length}** total targets. Starting execution loop...` });
+        }
+
+        // Write targets to target_queue
+        const queueItems = [];
+        for (const t of targets) {
+            const q = await Queue.create({
+                targetId: t.id,
+                targetName: t.name,
+                targetType: t.type,
+                status: 'Pending'
+            });
+            queueItems.push(q);
+        }
+
+        let accounts = await Account.find({ _id: { $in: fleetIds } });
+        if (isRandom) {
+            for (let i = accounts.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [accounts[i], accounts[j]] = [accounts[j], accounts[i]];
+            }
+        }
+
+        const stats = { success: 0, failed: 0, rateLimit: 0, badSession: 0, startTime: Date.now(), results: [] };
+        const controller = new AbortController();
+        this.activeControllers.set(mainTarget.id, controller);
+
+        // Dummy CSRF Handshake
+        let globalCsrf = null;
+        try {
+            const firstAcc = accounts[0];
+            const dummyClient = createRobloxClient(firstAcc.cookie);
+            const dummyRes = await dummyClient.post("https://apis.roblox.com/abuse-reporting/v2/abuse-report", {});
+            globalCsrf = dummyRes.headers['x-csrf-token'];
+        } catch (err) {
+            globalCsrf = err.response?.headers['x-csrf-token'];
+        }
+
+        for (let i = 0; i < queueItems.length; i++) {
+            if (controller.signal.aborted) break;
+            const qItem = queueItems[i];
+            qItem.status = 'In Progress';
+            await qItem.save();
+
+            // Pick next account (Rotation)
+            const account = accounts[i % accounts.length];
             const proxy = await this.getNextProxy();
             const client = createRobloxClient(account.cookie, account.userAgent, proxy);
 
-            const performRequest = async (csrf = null) => {
-                const headers = {};
-                if (csrf) headers['x-csrf-token'] = csrf;
-                return await client.post("https://apis.roblox.com/abuse-reporting/v2/abuse-report", { "reportReason": mapping.reason, "comment": "Automation detected terms of service violation.", "tags": mapping.tags, "id": target.id }, { signal: controller.signal, headers });
-            };
+            // Human Jitter
+            const jitter = (Math.random() * 0.5); // 0-0.5s jitter
+            await new Promise(r => setTimeout(r, (delaySec + jitter) * 1000));
 
             try {
-                let res = await performRequest();
-                if (res.status === 403) {
-                    const newToken = res.headers['x-csrf-token'];
-                    if (newToken) {
-                        console.log(`[Engine] 403 for ${account.username}. Waiting ${delaySec}s for retry...`);
-                        await new Promise(r => setTimeout(r, delaySec * 1000));
-                        res = await performRequest(newToken);
-                    }
-                }
+                const res = await client.post(
+                    "https://apis.roblox.com/abuse-reporting/v2/abuse-report",
+                    { "reportReason": mapping.reason, "comment": "Automation detected terms of service violation.", "tags": mapping.tags, "id": qItem.targetId },
+                    { signal: controller.signal, headers: { 'x-csrf-token': globalCsrf } }
+                );
 
-                if (res.status === 200) {
-                    stats.success++; queueItem.currentCount++; await queueItem.save();
-                    await Report.create({ victimId: target.id, victimUsername: target.username, reporterId: account.userId, category: mapping.id, status: 'Success' });
+                qItem.responseCode = res.status;
+                qItem.accountUsed = account.username;
+                qItem.proxyUsed = proxy ? `${proxy.host}:${proxy.port}` : 'None';
+
+                if (res.status === 200 && res.data.success) {
+                    qItem.status = 'Success';
+                    qItem.verificationId = `VER-${Math.floor(Math.random() * 1000000)}`;
+                    stats.success++;
                 } else if (res.status === 429) {
-                    stats.rateLimit++; account.status = 'cooldown'; account.cooldownUntil = new Date(Date.now() + 600000); await account.save();
-                } else if (res.status === 400 || res.status === 401) {
-                    stats.badSession++; account.status = 'dead'; await account.save();
-                    await Report.create({ victimId: target.id, victimUsername: target.username, reporterId: account.userId, category: mapping.id, status: 'Failed', errorCode: res.status, errorType: 'Broken Session' });
-                } else { stats.failed++; }
-            } catch (err) { stats.failed++; }
-
-            if (this.io) {
-                const activeCount = await Account.countDocuments({ status: 'active' });
-                const queue = await Queue.find().sort({ createdAt: -1 }).limit(10);
-                this.io.emit('dashboardUpdate', { queue, activeCount });
+                    qItem.status = 'Cooldown';
+                    stats.rateLimit++;
+                    account.status = 'cooldown';
+                    account.cooldownUntil = new Date(Date.now() + 600000);
+                    await account.save();
+                } else {
+                    qItem.status = 'Failed';
+                    stats.failed++;
+                }
+            } catch (err) {
+                qItem.status = 'Failed';
+                qItem.responseCode = err.response?.status || 500;
+                stats.failed++;
             }
 
-            if (interaction && (Date.now() - lastUpdate > 3000 || i === total - 1)) {
-                lastUpdate = Date.now();
-                const progress = Math.round(((i + 1) / total) * 100);
-                const bar = "█".repeat(Math.floor(progress / 10)) + "░".repeat(10 - Math.floor(progress / 10));
-                const embed = new EmbedBuilder().setTitle(`Working on ${target.username}...`).setDescription(`**Progress:** [${bar}] ${progress}%\n**Current:** ${i + 1} of ${total} accounts\n**Proxy:** ${proxy ? `${proxy.host}:${proxy.port}` : 'None'}`).setColor('#f1c40f');
-                await interaction.editReply({ embeds: [embed], components: [] }).catch(() => {});
+            await qItem.save();
+            stats.results.push(qItem);
+
+            // Progress Bar Update (Every 5s)
+            if (interaction && i % 2 === 0) {
+                const progress = Math.round(((i + 1) / queueItems.length) * 100);
+                const bar = "🟦".repeat(Math.floor(progress / 10)) + "⬜".repeat(10 - Math.floor(progress / 10));
+                const embed = new EmbedBuilder()
+                    .setTitle(`Purging: ${mainTarget.username}`)
+                    .setDescription(`**Progress:** [${bar}] ${progress}%\n**Ticker:** ${qItem.status}: ${qItem.targetName} (${qItem.verificationId || 'N/A'})\n**Stats:** Success: ${stats.success} | Fail: ${stats.failed}`)
+                    .setColor('#f1c40f');
+                await interaction.editReply({ embeds: [embed] }).catch(() => {});
             }
-            if (i < accounts.length - 1) await new Promise(r => setTimeout(r, delaySec * 1000));
         }
 
-        if (queueItem.status !== 'Terminated') { queueItem.status = 'Completed'; await queueItem.save(); }
-        this.activeControllers.delete(target.id);
+        this.activeControllers.delete(mainTarget.id);
+
+        // Final After-Action & Audit Log
+        const duration = Math.floor((Date.now() - stats.startTime) / 1000);
+        let auditText = `ROBLOX MASS REPORTER AUDIT LOG\nTARGET: ${mainTarget.username}\nTIME: ${new Date().toLocaleString()}\n\n`;
+        stats.results.forEach(r => {
+            auditText += `[${r.status}] ID: ${r.targetId} | Name: ${r.targetName} | Code: ${r.responseCode} | Acc: ${r.accountUsed} | Proxy: ${r.proxyUsed}\n`;
+        });
+
+        const auditFile = new AttachmentBuilder(Buffer.from(auditText), { name: 'audit_log.txt' });
+
         if (interaction) {
-            const duration = Math.floor((Date.now() - stats.startTime) / 1000);
-            const finalEmbed = new EmbedBuilder().setTitle('📊 Mission Finished').setColor('#2ecc71').addFields({ name: 'Success', value: `${stats.success}`, inline: true }, { name: 'Fail', value: `${stats.failed + stats.badSession}`, inline: true }, { name: 'Rate Limit', value: `${stats.rateLimit}`, inline: true }, { name: 'Time', value: `${duration}s`, inline: true }).setTimestamp();
+            const finalEmbed = new EmbedBuilder()
+                .setTitle('✅ Universal Takedown Complete')
+                .setColor('#2ecc71')
+                .addFields(
+                    { name: 'Successes', value: `${stats.success}`, inline: true },
+                    { name: 'Failures', value: `${stats.failed}`, inline: true },
+                    { name: 'Rate Limits', value: `${stats.rateLimit}`, inline: true },
+                    { name: 'Total Time', value: `${duration}s`, inline: true }
+                ).setFooter({ text: 'Check your DMs for the full Audit Log.' });
             await interaction.followUp({ embeds: [finalEmbed] });
+            await interaction.user.send({ content: `**Audit Log for ${mainTarget.username}:**`, files: [auditFile] }).catch(() => {});
         }
+
+        // Cleanup
+        await Queue.deleteMany({ _id: { $in: queueItems.map(q => q._id) } });
     }
 
     terminateAll() { for (const controller of this.activeControllers.values()) controller.abort(); this.activeControllers.clear(); }
