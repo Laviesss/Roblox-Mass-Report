@@ -1,6 +1,6 @@
 # 🤖 Roblox-Mass-Reporter - Easy Guide
 
-This tool lets you use multiple Roblox accounts to report people who break the rules. It works on your computer and you control it through Discord.
+This tool lets you use multiple Roblox accounts to report people who break the rules. It works on your computer or in the cloud, and you control it through Discord.
 
 ## 📋 What you need first
 
@@ -10,10 +10,11 @@ This tool lets you use multiple Roblox accounts to report people who break the r
 
 ---
 
-## 🚀 Step 1: Install it
+## 🚀 Option 1: Run it on your PC (Local)
 
 Open your terminal (like Command Prompt or PowerShell) in this folder and type:
 
+### 1. Install it
 ```bash
 # Download the project files
 npm install
@@ -22,27 +23,15 @@ npm install
 npm install pm2 -g
 ```
 
----
-
-## ⚙️ Step 2: Set it up
-
+### 2. Set it up
 1.  Find the file named `.env.example`.
 2.  Make a copy of it and name the new file `.env`.
 3.  Open the `.env` file and fill in your info:
+    *   `DISCORD_TOKEN`: Your bot token.
+    *   `CLIENT_ID`: Your bot's client ID.
+    *   `MONGODB_URI`: Your MongoDB link.
 
-```env
-DISCORD_TOKEN=your_bot_token_here
-CLIENT_ID=your_bot_client_id_here
-MONGODB_URI=your_mongodb_link_here
-PORT=3000
-```
-
----
-
-## ⚡ Step 3: Start the Bot
-
-To start the bot and keep it running even if you close the window, type:
-
+### 3. Start it
 ```bash
 # Start the bot
 pm2 start ecosystem.config.js
@@ -54,7 +43,22 @@ pm2 startup
 
 ---
 
-## 🛠️ How to manage the bot
+## ☁️ Option 2: Run it in the Cloud (Render.com)
+
+If you want the bot to run 24/7 without keeping your PC on, follow these steps:
+
+1.  **Upload to GitHub:** Put your bot code into a private repository on GitHub.
+2.  **Connect to Render:** Log in to [Render.com](https://render.com) and click **"New +"** then **"Blueprint"**.
+3.  **Link Repo:** Select your GitHub repository.
+4.  **Add Secrets:** In the Render dashboard, go to the **"Environment"** tab and add these variables:
+    *   `DISCORD_TOKEN`: Your bot token.
+    *   `CLIENT_ID`: Your bot's client ID.
+    *   `MONGODB_URI`: Your MongoDB connection string.
+5.  **Deploy:** Click **"Apply"**. Render will use the `render.yaml` file to set everything up automatically!
+
+---
+
+## 🛠️ How to manage the bot (Local PC)
 
 Use these simple words in your terminal:
 

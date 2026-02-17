@@ -6,8 +6,7 @@ const QueueSchema = new mongoose.Schema({
     targetCount: Number,
     currentCount: { type: Number, default: 0 },
     category: Number,
-    status: { type: String, default: 'Pending' }, // Pending, In Progress, Completed, Failed, Terminated
-    createdAt: { type: Date, default: Date.now }
-});
+    status: { type: String, default: 'Pending' } // Pending, In Progress, Completed, Failed, Terminated
+}, { timestamps: true });
 
 module.exports = mongoose.model('Queue', QueueSchema);
