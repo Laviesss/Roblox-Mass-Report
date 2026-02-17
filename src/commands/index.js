@@ -10,6 +10,8 @@ const {
 const Account = require('../models/Account');
 const Report = require('../models/Report');
 const Queue = require('../models/Queue');
+const Proxy = require('../models/Proxy');
+const UserAgent = require('../models/UserAgent');
 const axios = require('axios');
 
 const calculateAge = (createdAt) => {
@@ -32,13 +34,8 @@ module.exports = (engine) => [
             .addStringOption(opt => opt.setName('username').setDescription('Target person').setRequired(true)),
         async execute(interaction) {
             await interaction.deferReply();
-
-            const readyCount = await Account.countDocuments({
-                status: 'active',
-                $or: [{ cooldownUntil: null }, { cooldownUntil: { $lte: new Date() } }]
-            });
-
-            if (readyCount === 0) return interaction.editReply("No accounts are ready to use right now. Check /accounts.");
+            const readyCount = await Account.countDocuments({ status: 'active', $or: [{ cooldownUntil: null }, { cooldownUntil: { $lte: new Date() } }] });
+            if (readyCount === 0) return interaction.editReply("No accounts are ready. Check /accounts.");
 
             const username = interaction.options.getString('username');
             let target;
@@ -54,15 +51,7 @@ module.exports = (engine) => [
                 target = { id, username: detail.data.name, joined: detail.data.created, avatar: thumb.data.data[0]?.imageUrl, online: presence.data.userPresences[0]?.userPresenceType >= 1 };
             } catch (err) { return interaction.editReply(`❌ Error: ${err.message}`); }
 
-            const embed = new EmbedBuilder()
-                .setTitle(`Target Intel: ${target.username}`)
-                .setThumbnail(target.avatar)
-                .addFields(
-                    { name: 'Joined', value: new Date(target.joined).toLocaleDateString(), inline: true },
-                    { name: 'Account Age', value: calculateAge(target.joined), inline: true },
-                    { name: 'Online Status', value: target.online ? "🟢 Online" : "⚪ Offline", inline: true }
-                ).setColor(target.online ? '#00FF00' : '#808080');
-
+            const embed = new EmbedBuilder().setTitle(`Target Intel: ${target.username}`).setThumbnail(target.avatar).addFields({ name: 'Joined', value: new Date(target.joined).toLocaleDateString(), inline: true }, { name: 'Account Age', value: calculateAge(target.joined), inline: true }, { name: 'Online Status', value: target.online ? "🟢 Online" : "⚪ Offline", inline: true }).setColor(target.online ? '#00FF00' : '#808080');
             const nextBtn = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('next_to_reason').setLabel('Continue to Reason').setStyle(ButtonStyle.Primary));
             const msg = await interaction.editReply({ embeds: [embed], components: [nextBtn] });
 
@@ -71,7 +60,6 @@ module.exports = (engine) => [
 
             collector.on('collect', async i => {
                 if (i.user.id !== interaction.user.id) return i.reply({ content: "Not your menu.", ephemeral: true });
-
                 if (i.customId === 'next_to_reason') {
                     const row = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('select_reason').setPlaceholder('Reason...').addOptions(Object.entries(engine.reasonMap).map(([key, val]) => ({ label: val.label, value: key }))));
                     await i.update({ content: "### Step 2: Reason Selection", embeds: [], components: [row] });
@@ -87,11 +75,7 @@ module.exports = (engine) => [
                     await updateAccountPicker(i);
                 } else if (i.customId === 'select_accounts') {
                     i.values.forEach(val => state.selectedAccounts.add(val));
-                    const row = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId('go_seq').setLabel('Go (Sequential)').setStyle(ButtonStyle.Success),
-                        new ButtonBuilder().setCustomId('go_rand').setLabel('Go (Randomize)').setStyle(ButtonStyle.Secondary),
-                        new ButtonBuilder().setCustomId('add_more').setLabel('Add More Accounts').setStyle(ButtonStyle.Primary)
-                    );
+                    const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('go_seq').setLabel('Go (Sequential)').setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId('go_rand').setLabel('Go (Randomize)').setStyle(ButtonStyle.Secondary), new ButtonBuilder().setCustomId('add_more').setLabel('Add More Accounts').setStyle(ButtonStyle.Primary));
                     await i.update({ content: `### Final Step: Order\nSelected: **${state.selectedAccounts.size} accounts**`, components: [row] });
                 } else if (i.customId === 'add_more') {
                     await updateAccountPicker(i);
@@ -142,21 +126,78 @@ module.exports = (engine) => [
         async execute(interaction) {
             const ready = await Account.countDocuments({ status: 'active', $or: [{ cooldownUntil: null }, { cooldownUntil: { $lte: new Date() } }] });
             const embed = new EmbedBuilder().setTitle('📊 Fleet').addFields({ name: 'Ready', value: `${ready}`, inline: true }).setColor('#9b59b6');
-
-            const filterRow = new ActionRowBuilder().addComponents(
-                new StringSelectMenuBuilder()
-                    .setCustomId('filter_accounts_detailed')
-                    .setPlaceholder('Filter view...')
-                    .addOptions([
-                        { label: 'All', value: 'all' },
-                        { label: 'Ready', value: 'ready' },
-                        { label: 'On Break', value: 'cooldown' },
-                        { label: 'Dead', value: 'dead' }
-                    ])
-            );
-
+            const filterRow = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('filter_accounts_detailed').setPlaceholder('Filter...').addOptions([{ label: 'All', value: 'all' }, { label: 'Ready', value: 'ready' }, { label: 'On Break', value: 'cooldown' }, { label: 'Dead', value: 'dead' }]));
             const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('trigger_add_modal').setLabel('Add').setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId('refresh_accounts').setLabel('Refresh').setStyle(ButtonStyle.Primary), new ButtonBuilder().setCustomId('force_reset_cooldowns').setLabel('Reset All').setStyle(ButtonStyle.Danger));
             await interaction.reply({ embeds: [embed], components: [filterRow, row] });
+        }
+    },
+    {
+        data: new SlashCommandBuilder().setName('proxies').setDescription('Manage proxies')
+            .addAttachmentOption(opt => opt.setName('file').setDescription('Upload proxy list (.txt)').setRequired(false))
+            .addStringOption(opt => opt.setName('list').setDescription('Paste proxy list (IP:Port)').setRequired(false)),
+        async execute(interaction) {
+            const file = interaction.options.getAttachment('file');
+            const list = interaction.options.getString('list');
+            let rawData = "";
+
+            if (file) {
+                const res = await axios.get(file.url);
+                rawData = res.data;
+            } else if (list) {
+                rawData = list;
+            }
+
+            if (rawData) {
+                const regex = /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d{2,5})/g;
+                let match;
+                let count = 0;
+                while ((match = regex.exec(rawData)) !== null) {
+                    await Proxy.findOneAndUpdate(
+                        { host: match[1], port: parseInt(match[2]) },
+                        { status: 'active', lastChecked: new Date() },
+                        { upsert: true }
+                    );
+                    count++;
+                }
+                return await interaction.reply(`✅ Imported ${count} proxies. Use the buttons below to check them.`);
+            }
+
+            const active = await Proxy.countDocuments({ status: 'active' });
+            const dead = await Proxy.countDocuments({ status: 'dead' });
+            const embed = new EmbedBuilder().setTitle('🌐 Proxy Manager').addFields({ name: 'Active', value: `${active}`, inline: true }, { name: 'Dead', value: `${dead}`, inline: true }).setColor('#3498db');
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('check_proxies').setLabel('Check Proxies').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('remove_dead_proxies').setLabel('Remove Dead').setStyle(ButtonStyle.Danger)
+            );
+            await interaction.reply({ embeds: [embed], components: [row] });
+        }
+    },
+    {
+        data: new SlashCommandBuilder().setName('useragents').setDescription('Manage browser strings')
+            .addAttachmentOption(opt => opt.setName('file').setDescription('Upload UA list (.txt)').setRequired(false))
+            .addStringOption(opt => opt.setName('list').setDescription('Paste UA list').setRequired(false)),
+        async execute(interaction) {
+            const file = interaction.options.getAttachment('file');
+            const list = interaction.options.getString('list');
+            let rawData = "";
+
+            if (file) {
+                const res = await axios.get(file.url);
+                rawData = res.data;
+            } else if (list) {
+                rawData = list;
+            }
+
+            if (rawData) {
+                const uas = rawData.split('\n').map(s => s.trim()).filter(s => s.length > 20);
+                for (const ua of uas) {
+                    await UserAgent.findOneAndUpdate({ ua }, { addedAt: new Date() }, { upsert: true });
+                }
+                return await interaction.reply(`✅ Imported ${uas.length} browser strings.`);
+            }
+
+            const count = await UserAgent.countDocuments();
+            await interaction.reply(`Currently have **${count}** unique User-Agents in the database.`);
         }
     },
     {

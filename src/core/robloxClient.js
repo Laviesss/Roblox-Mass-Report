@@ -1,35 +1,33 @@
 const axios = require('axios');
+const { HttpsProxyAgent } = require('https-proxy-agent');
+const { SocksProxyAgent } = require('socks-proxy-agent');
 
-const createRobloxClient = (cookie) => {
-    const robloxClient = axios.create({
-        headers: {
-            'Cookie': `.ROBLOSECURITY=${cookie}`,
-            'Content-Type': 'application/json',
-            'Referer': 'https://www.roblox.com'
-        },
-        timeout: 10000
-    });
+const createRobloxClient = (cookie, userAgent = null, proxy = null) => {
+    const headers = {
+        'Cookie': `.ROBLOSECURITY=${cookie}`,
+        'Content-Type': 'application/json',
+        'Referer': 'https://www.roblox.com'
+    };
 
-    // CSRF Interceptor
-    robloxClient.interceptors.response.use(
-        res => res,
-        async err => {
-            const { config, response } = err;
+    if (userAgent) {
+        headers['User-Agent'] = userAgent;
+    }
 
-            // If 403 CSRF error, grab new token and retry once
-            if (response?.status === 403 && response.headers['x-csrf-token']) {
-                console.log("[RobloxClient] 403 CSRF Detected. Retrying with new token...");
-                config.headers['x-csrf-token'] = response.headers['x-csrf-token'];
-                // We don't wait here because the Engine handles the delay between accounts,
-                // but for a single retry, immediate is usually fine if token was missing.
-                return robloxClient(config);
-            }
+    const config = {
+        headers,
+        timeout: 15000,
+        validateStatus: (status) => status < 500 // Let engine handle 403/429/400
+    };
 
-            return Promise.reject(err);
+    if (proxy) {
+        if (proxy.protocol.startsWith('socks')) {
+            config.httpsAgent = new SocksProxyAgent(`${proxy.protocol}://${proxy.host}:${proxy.port}`);
+        } else {
+            config.httpsAgent = new HttpsProxyAgent(`http://${proxy.host}:${proxy.port}`);
         }
-    );
+    }
 
-    return robloxClient;
+    return axios.create(config);
 };
 
 module.exports = createRobloxClient;

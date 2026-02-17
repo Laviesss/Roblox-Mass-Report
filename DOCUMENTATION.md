@@ -1,81 +1,80 @@
-# 📚 Technical Documentation: Roblox-Mass-Reporter
+# 📚 Technical Guide: Roblox-Mass-Reporter
 
-This manual explains how the bot works, how it saves data, and how it handles cloud hosting.
-
----
-
-## 🛠️ Section 1: The Engine (How it Works)
-
-### Request Flow
-The bot talks to the Roblox API using a specialized tool called Axios. When you start a report run, the bot takes your list of accounts and sends a "POST" request to the Roblox Abuse Reporting V2 endpoint for each one.
-
-### CSRF Handling (Catching the 403)
-Roblox uses a security key called a "CSRF Token" to stop spam. If the bot tries to send a report without a valid key, Roblox sends back an **Error 403**.
-1.  The bot catches this error immediately using an "interceptor" in the code.
-2.  It looks at the header of the error message to find the new `x-csrf-token`.
-3.  It puts the new key into the request and tries to send the report again once.
-4.  If it fails again with an Error 400, it marks that account as broken.
-
-### Rate Limit Logic (The 429 Math)
-If you send reports too fast, Roblox will send back an **Error 429**.
-*   The bot identifies this "Stop" signal and immediately puts that specific account on a break.
-*   **The Math:** It sets a "Cooldown" timestamp in the database exactly 10 minutes (600 seconds) into the future.
-*   The bot will skip this account for any new report runs until that time has passed.
+This manual explains how the bot works, how it keeps you safe, and how to set it up.
 
 ---
 
-## 🗄️ Section 2: Database Schema
+## 🌐 1. The Proxy Detective System
 
-We use MongoDB Atlas to make sure your data never disappears, even if the bot restarts.
+The bot has a built-in "detective" that figures out how your proxies work so you don't have to.
 
-### Collection: `sessions`
-This saves your Roblox accounts.
-*   `cookie`: The full Roblox session string.
-*   `username`: The Roblox name for the account.
-*   `userId`: The unique ID for the Roblox account.
-*   `status`: Tells us if the account is `active`, `cooldown`, or `dead`.
-*   `cooldownUntil`: The exact time when an account is allowed to work again.
-*   `last_checked`: When the bot last checked if the account was working.
+### The Process
+When you add proxies, the bot doesn't always know what type they are. It runs a "Waterfall" check to find out:
+1.  **HTTP Check:** It first tries a basic web connection.
+2.  **SOCKS5 Check:** If that fails, it tries SOCKS5.
+3.  **SOCKS4 Check:** If both fail, it tries SOCKS4 as a last resort.
+If all three fail, the bot marks the proxy as "Dead" so it doesn't waste your time.
 
-### Collection: `reports`
-This logs every attempt the bot makes.
-*   `victimId`: The unique ID of the person being reported.
-*   `victimUsername`: The name of the person being reported.
-*   `reporterId`: The ID of your account that sent the report.
-*   `category`: The ID of the reason (1-10) used for the report.
-*   `status`: Shows if the report was a `Success`, `Failed`, or `Error`.
-*   `errorCode`: The number Roblox sent back (like 400 or 403).
-*   `errorType`: A simple description of what went wrong.
+### Adding Proxies
+Use the `/proxies` command to upload your list.
+*   **Smart Parser:** You can upload a `.txt` file or just paste the list. The bot uses a smart search to find the IP and Port even if there is extra text in the way.
+*   **Cleanup:** Use the **[Check Proxies]** button to test every proxy for speed and type. Use **[Remove Dead]** to delete the ones that don't work.
 
 ---
 
-## ☁️ Section 3: Cloud Infrastructure (Render)
+## 🎭 2. User-Agents & Fingerprinting
 
-### Web-Server Guard
-We use a small web server (Express) inside the bot. This is because cloud services like Render check to see if your code is "listening" for connections.
-*   The bot uses `process.env.PORT` to open a web port.
-*   If this port isn't open, Render will think the bot crashed and keep restarting it.
+Roblox tries to block bots by looking at their "fingerprint." We use browser strings (User-Agents) to make your accounts look like real people.
 
-### The RENDER Toggle
-Inside the code, there is a setting called `isRender`.
-*   If `RENDER=true` is set in your environment variables, the bot knows it is running in the cloud.
-*   It will automatically try to sync cookies from the `CLOUDS_COOKIES` environment variable, but only if they aren't already in the database.
+### Bulk Import
+Use the `/useragents` command to add a list of browser strings. You can get these from any modern browser list online.
 
-### Cron-Jobs (Keeping it Awake)
-If you are using a free version of Render, the bot will "fall asleep" after 15 minutes of no work.
-*   To fix this, use a "Ping" service (like Cron-job.org) to visit your bot's web link every 5-10 minutes. This keeps the bot awake and ready to work 24/7.
+### Sticky Identity
+This is the secret to staying hidden:
+1.  **The Pair:** When you add a Roblox account, the bot gives it a random browser string from your list.
+2.  **The Lock:** It saves that pair in the database forever.
+3.  **The Result:** Every time that account works, it uses the **exact same** browser string. To Roblox, it looks like the account is always coming from the same device (like a specific version of Chrome on a Windows PC). This stops them from flagging you as a bot.
 
 ---
 
-## 🎮 Section 4: Command Architecture
+## 🛠️ 3. How to Set It Up
 
-### Pagination (The 25-Limit)
-Discord only lets us show 25 items in a dropdown menu at once.
-*   If you have more than 25 accounts, the bot splits them into pages.
-*   It uses "Back" and "Next" buttons to let you flip through your fleet.
-*   The bot remembers every account you pick across all pages using a "Set" in the code. This means you can pick accounts on page 1, then go to page 2 and pick more without losing the first ones.
+### A. Run it on your PC (Local)
+1.  **Install Node.js:** Download it from nodejs.org (get version 18 or newer). Open your terminal and type `node -v` to make sure it worked.
+2.  **The .env file:** Create a file named `.env` in the main folder. Put your keys in it like this:
+    ```env
+    DISCORD_TOKEN=your_bot_token
+    CLIENT_ID=your_id
+    MONGODB_URI=your_mongo_link
+    ```
+3.  **The Commands:**
+    *   Type `npm install` to get the files ready.
+    *   Type `node src/server.js` to start the bot.
 
-### Shuffling (Fisher-Yates)
-When you choose "Randomize" in the report wizard, the bot shuffles your accounts.
-*   It uses a "Fisher-Yates" shuffle. This is a simple bit of math that goes through the list and swaps items around until they are in a completely unpredictable order.
-*   This makes sure Roblox doesn't see the same pattern of accounts every time you report someone.
+### B. Run it in the Cloud (Render.com)
+1.  **The Blueprint:** The `render.yaml` file is already set to the **Free Tier**. You don't need to touch it.
+2.  **Connect:** Link your GitHub to Render and pick this project.
+3.  **Environment:** On the Render dashboard, go to "Environment" and add these keys: `DISCORD_TOKEN`, `CLIENT_ID`, and `MONGODB_URI`.
+4.  **Stay Awake:** Because it's free, Render will turn off the bot if it stays quiet.
+    *   Go to **cron-job.org**.
+    *   Make a job that visits your Render web link every 10 minutes. This keeps it running 24/7.
+
+---
+
+## 🕹️ 4. Command Breakdown
+
+### /report
+- It finds the person's ID.
+- It gets the security token from Roblox.
+- It picks a working proxy from your list.
+- It uses the "Sticky" browser string for that account.
+- It runs the reports one by one with the delay you picked.
+
+### /accounts
+- It shows every account you have saved.
+- It checks if they are Ready, on Cooldown, or Broken.
+- The **[Force Reset]** button clears all breaks so you can start again immediately.
+
+### /upload_accounts
+- The parser handles line-by-line cookies or comma lists.
+- It checks every cookie with Roblox to make sure it's valid before saving.

@@ -1,6 +1,6 @@
 # 🤖 Roblox-Mass-Reporter
 
-A professional multi-account reporting suite built for stability and ease of use. It automates the process of sending reports across multiple sessions while handling complex obstacles like rate limits and security checks.
+A professional multi-account reporting suite built for stealth and stability. It automates the process of sending reports across multiple sessions with full fingerprinting and proxy support.
 
 ---
 
@@ -11,7 +11,7 @@ A professional multi-account reporting suite built for stability and ease of use
 3.  **Bot Token:** Create a bot on the Discord Developer Portal and invite it to your server.
 4.  **Configure:** Copy `.env.example` to `.env` and fill in your keys.
 5.  **Launch:**
-    *   **Local:** Run `pm2 start ecosystem.config.js`.
+    *   **Local:** Run `node src/server.js`.
     *   **Cloud:** Connect your repo to Render.com and apply the blueprint.
 
 ---
@@ -22,12 +22,11 @@ You need these in your `.env` file:
 *   `DISCORD_TOKEN`: Your bot's secret key.
 *   `CLIENT_ID`: Your bot's ID.
 *   `MONGODB_URI`: Your database connection link.
-*   `PORT`: Default is 3000 (used for cloud health checks).
 
 ---
 
 ## 📚 Technical Manual
 
-For exhaustive details on how the engine works, database schemas, and command architecture:
+For exhaustive details on the Proxy Detective, User-Agent Fingerprinting, and Step-by-Step setup:
 
 👉 **[View Full Documentation (DOCUMENTATION.md)](./DOCUMENTATION.md)**
