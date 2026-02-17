@@ -14,7 +14,8 @@ const {
     EmbedBuilder,
     ButtonStyle,
     ButtonBuilder,
-    StringSelectMenuBuilder
+    StringSelectMenuBuilder,
+    MessageFlags
 } = require('discord.js');
 const connectDB = require('./core/database');
 const ReportingEngine = require('./core/reportingEngine');
@@ -52,6 +53,19 @@ connectDB().then(async () => {
     `);
 
     await engine.init();
+
+    // Register Discord Slash Commands
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+    try {
+        console.log('[RMR] Registering application commands...');
+        await rest.put(
+            Routes.applicationCommands(process.env.CLIENT_ID),
+            { body: commands.map(c => c.data.toJSON()) }
+        );
+        console.log('[RMR] Commands registered successfully.');
+    } catch (error) {
+        console.error('[RMR] Failed to register commands:', error);
+    }
 
     // Persistent Queue resumption check
     const pendingCount = await Queue.countDocuments({ status: { $in: ['Pending', 'In Progress'] } });
@@ -109,7 +123,7 @@ client.on('interactionCreate', async interaction => {
         if (interaction.customId !== 'trigger_add_modal' &&
             interaction.customId !== 'trigger_proxy_modal' &&
             interaction.customId !== 'trigger_ua_modal') {
-            await interaction.deferReply({ ephemeral: true });
+            await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
         }
 
         const customId = interaction.customId;
@@ -157,7 +171,7 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (interaction.isModalSubmit()) {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
         if (interaction.customId === 'account_add_modal') {
             const cookie = interaction.fields.getTextInputValue('cookie_input');
             const account = await engine.sessionManager.addAccount(cookie);

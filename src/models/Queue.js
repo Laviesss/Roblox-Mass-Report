@@ -5,6 +5,7 @@ const QueueSchema = new mongoose.Schema({
     targetType: String, // BAN, ASSET, GAME, GROUP
     targetName: String,
     parentTargetId: String, // For linking sub-items to a main scrape
+    reasonKey: String,
     status: { type: String, default: 'Pending' }, // Pending, In Progress, Success, Failed, Cooldown
     responseCode: Number,
     responseBody: mongoose.Schema.Types.Mixed,

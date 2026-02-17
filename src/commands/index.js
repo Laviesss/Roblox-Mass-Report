@@ -5,7 +5,8 @@ const {
     ButtonBuilder,
     ButtonStyle,
     StringSelectMenuBuilder,
-    ComponentType
+    ComponentType,
+    MessageFlags
 } = require('discord.js');
 const Account = require('../models/Account');
 const Report = require('../models/Report');
@@ -22,7 +23,7 @@ module.exports = (engine) => [
             .setDescription('RMR | Universal Takedown Wizard')
             .addStringOption(opt => opt.setName('id').setDescription('Target ID (User, Group, or Asset)').setRequired(true)),
         async execute(interaction) {
-            await interaction.deferReply({ ephemeral: true });
+            await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
 
             const targetId = interaction.options.getString('id');
 
@@ -44,7 +45,7 @@ module.exports = (engine) => [
             const collector = msg.createMessageComponentCollector({ time: 600000 });
 
             collector.on('collect', async i => {
-                if (i.user.id !== interaction.user.id) return i.reply({ content: "RMR | Not your menu.", ephemeral: true });
+                if (i.user.id !== interaction.user.id) return i.reply({ content: "RMR | Not your menu.", flags: [MessageFlags.Ephemeral] });
 
                 if (i.customId === 'select_domain') {
                     state.type = i.values[0];
@@ -89,7 +90,7 @@ module.exports = (engine) => [
     {
         data: new SlashCommandBuilder().setName('reports').setDescription('RMR | View history and stats').addStringOption(opt => opt.setName('search').setDescription('Search by username')),
         async execute(interaction) {
-            await interaction.deferReply({ ephemeral: true });
+            await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
             const search = interaction.options.getString('search');
             if (search) {
                 const history = await Report.find({ victimUsername: new RegExp(search, 'i') }).sort({ timestamp: -1 }).limit(20);
@@ -112,7 +113,7 @@ module.exports = (engine) => [
     {
         data: new SlashCommandBuilder().setName('accounts').setDescription('RMR | Fleet Hub'),
         async execute(interaction) {
-            await interaction.deferReply({ ephemeral: true });
+            await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
             const total = await Account.countDocuments();
             const healthy = await Account.countDocuments({ status: 'active' });
             const cooldown = await Account.countDocuments({ status: 'cooldown' });
@@ -140,7 +141,7 @@ module.exports = (engine) => [
     {
         data: new SlashCommandBuilder().setName('proxies').setDescription('RMR | Proxy Dashboard'),
         async execute(interaction) {
-            await interaction.deferReply({ ephemeral: true });
+            await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
             const total = await Proxy.countDocuments();
             const healthy = await Proxy.countDocuments({ status: 'active' });
             const dead = await Proxy.countDocuments({ status: 'dead' });
@@ -166,7 +167,7 @@ module.exports = (engine) => [
     {
         data: new SlashCommandBuilder().setName('useragents').setDescription('RMR | UA Dashboard'),
         async execute(interaction) {
-            await interaction.deferReply({ ephemeral: true });
+            await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
             const total = await UserAgent.countDocuments();
 
             const embed = new EmbedBuilder()
@@ -187,7 +188,7 @@ module.exports = (engine) => [
         data: new SlashCommandBuilder().setName('terminate').setDescription('RMR | Kill Switch'),
         async execute(interaction) {
             engine.terminateAll();
-            await interaction.reply({ content: "🔴 RMR | STOPPED ALL LOOPS.", ephemeral: true });
+            await interaction.reply({ content: "🔴 RMR | STOPPED ALL LOOPS.", flags: [MessageFlags.Ephemeral] });
         }
     }
 ];

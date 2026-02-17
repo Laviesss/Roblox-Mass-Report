@@ -79,25 +79,85 @@ class ReportingEngine {
         const item = await Queue.findOne({ status: 'Pending' }).sort({ createdAt: 1 });
         if (!item) return;
 
-        this.log(`Picking up task: ${item.targetName} (${item.targetId})`);
-        item.status = 'In Progress';
-        await item.save();
-
-        // Find available accounts
-        const accounts = await Account.find({
+        // Pick an available account
+        const account = await Account.findOne({
             status: 'active',
             $or: [{ cooldownUntil: null }, { cooldownUntil: { $lte: new Date() } }]
         });
 
-        if (accounts.length === 0) {
-            item.status = 'Pending';
-            await item.save();
-            return;
+        if (!account) return;
+
+        item.status = 'In Progress';
+        await item.save();
+
+        this.log(`Resuming task: ${item.targetName} (${item.targetId}) using ${account.username}`);
+
+        const proxy = await this.getNextProxy();
+        const client = createRobloxClient(account.cookie, account.userAgent, proxy);
+
+        try {
+            // Need a CSRF token. We'll perform a quick handshake.
+            let csrf = null;
+            try {
+                const res = await client.post("https://apis.roblox.com/abuse-reporting/v2/abuse-report", {});
+                csrf = res.headers['x-csrf-token'];
+            } catch (err) {
+                csrf = err.response?.headers['x-csrf-token'];
+            }
+
+            const mapping = this.reasonMap[item.reasonKey || "other"] || this.reasonMap["other"];
+
+            const res = await client.post(
+                "https://apis.roblox.com/abuse-reporting/v2/abuse-report",
+                { "reportReason": mapping.reason, "comment": "Automation detected terms of service violation.", "tags": mapping.tags, "id": item.targetId },
+                { headers: { 'x-csrf-token': csrf } }
+            );
+
+            item.responseCode = res.status;
+            item.responseBody = res.data;
+            item.accountUsed = account.username;
+            item.proxyUsed = proxy ? `${proxy.host}:${proxy.port}` : 'None';
+
+            if (res.status === 200 && res.data.success) {
+                item.status = 'Success';
+                item.verificationId = `VER-${Math.floor(Math.random() * 1000000)}`;
+                this.log(`Resumed task Success: ${item.targetName}`);
+
+                // Add to history
+                await Report.create({
+                    victimUsername: item.targetName,
+                    victimId: item.targetId,
+                    status: 'Success',
+                    timestamp: new Date()
+                });
+            } else if (res.status === 429) {
+                item.status = 'Pending'; // Back to pending to try again
+                account.status = 'cooldown';
+                account.cooldownUntil = new Date(Date.now() + 600000);
+                await account.save();
+            } else {
+                item.status = 'Failed';
+                await Report.create({
+                    victimUsername: item.targetName,
+                    victimId: item.targetId,
+                    status: 'Failed',
+                    errorType: `Code ${res.status}`,
+                    timestamp: new Date()
+                });
+            }
+        } catch (err) {
+            item.status = 'Failed';
+            item.responseCode = err.response?.status || 500;
+            await Report.create({
+                victimUsername: item.targetName,
+                victimId: item.targetId,
+                status: 'Failed',
+                errorType: err.message,
+                timestamp: new Date()
+            });
         }
 
-        // Run internal loop for this specific item
-        // In this architecture, executeMassReport handles the loop for a list of targets.
-        // This processQueue is a fallback for resumed tasks.
+        await item.save();
     }
 
     // Stage 2: Recursive Scrapers
@@ -175,6 +235,7 @@ class ReportingEngine {
                 targetId: t.id,
                 targetName: t.name,
                 targetType: t.type,
+                reasonKey: reasonKey,
                 status: 'Pending'
             });
             queueItems.push(q);
