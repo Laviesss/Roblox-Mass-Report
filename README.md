@@ -11,7 +11,7 @@ A professional multi-account reporting suite built for stealth and stability. It
 3.  **Bot Token:** Create a bot on the Discord Developer Portal and invite it to your server.
 4.  **Configure:** Copy `.env.example` to `.env` and fill in your keys.
 5.  **Launch:**
-    *   **Local:** Run `node src/server.js`.
+    *   **Local:** Run `pm2 start ecosystem.config.js`.
     *   **Cloud:** Connect your repo to Render.com and apply the blueprint.
 
 ---
@@ -22,6 +22,20 @@ You need these in your `.env` file:
 *   `DISCORD_TOKEN`: Your bot's secret key.
 *   `CLIENT_ID`: Your bot's ID.
 *   `MONGODB_URI`: Your database connection link.
+
+---
+
+## 📊 Local Setup Workflow
+
+```mermaid
+graph TD
+    A[Install Node & PM2] --> B[Configure .env File]
+    B --> C[Run 'pm2 start ecosystem.config.js']
+    C --> D{Bot Status?}
+    D -- Online --> E[Monitor via 'pm2 monit']
+    D -- Error --> F[Check 'pm2 logs']
+    F --> B
+```
 
 ---
 
