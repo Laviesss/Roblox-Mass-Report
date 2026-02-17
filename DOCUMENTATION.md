@@ -104,5 +104,5 @@ When reviewing Audit Logs, you may see various HTTP status codes:
 4. **Audit Logs:** Always review the `.txt` audit log sent to your DMs after a mission. It contains the exact Roblox response codes and verification IDs, which are vital for tracking your success.
 
 ---
-*RMR: Professional Takedown Utility. Designed for speed, built for persistence.*
+*RMR: RMR. Designed for speed, built for persistence.*
 *© 2024 RMR Development Group. All Rights Reserved.*

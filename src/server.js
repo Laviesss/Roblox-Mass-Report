@@ -51,7 +51,7 @@ connectDB().then(async () => {
     ██╔══██╗██║╚██╔╝██║██╔══██╗
     ██║  ██║██║ ╚═╝ ██║██║  ██║
     ╚═╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝
-    ROBLOX MASS REPORTER v3.0
+    RMR | ROBLOX MASS REPORTER v3.0
     `);
 
     await engine.init();
@@ -133,14 +133,14 @@ client.on('interactionCreate', async interaction => {
                 .setCustomId('target_id')
                 .setLabel('Target ID (User/Game/Group)')
                 .setStyle(TextInputStyle.Short)
-                .setPlaceholder('Enter the ID here...')
+                .setPlaceholder('Enter the numeric ID here...')
                 .setRequired(true);
 
             const reasonInput = new TextInputBuilder()
                 .setCustomId('target_reason')
                 .setLabel('Reason / Comment')
                 .setStyle(TextInputStyle.Paragraph)
-                .setPlaceholder('Automation detected ToS violation...')
+                .setPlaceholder('Explain the violation (e.g. Inappropriate Language)...')
                 .setRequired(true);
 
             modal.addComponents(

@@ -1,6 +1,6 @@
 # 🤖 RMR | Roblox Mass Reporter
 
-**RMR (Roblox Mass Reporter)** is a modernized, professional-grade takedown utility built for Node.js. It features advanced stealth capabilities, a deep-scraping engine, and a persistent background worker.
+**RMR (Roblox Mass Reporter)** is a modernized, professional-grade takedown tool built for Node.js. It features advanced stealth capabilities, a deep-scraping engine, and a persistent background worker.
 
 ## 🚀 Key Features
 - **Modern Node.js V18+:** Fast, asynchronous, and reliable.

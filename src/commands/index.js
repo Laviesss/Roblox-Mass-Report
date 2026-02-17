@@ -23,14 +23,14 @@ module.exports = (engine) => [
     {
         data: new SlashCommandBuilder()
             .setName('report')
-            .setDescription('RMR | Universal Takedown Wizard'),
+            .setDescription('RMR | Report Center'),
         async execute(interaction) {
             // Step A: Instant Response (Fixing Error 10062)
             await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
 
             // Step B: RMR Command Hub
             const embed = new EmbedBuilder()
-                .setTitle('RMR | Universal Takedown Hub')
+                .setTitle('RMR | Report Center')
                 .setDescription('Select the target category below to begin the mapping process.')
                 .addFields(
                     { name: '👤 Player/User', value: 'Profile-level takedowns.', inline: true },

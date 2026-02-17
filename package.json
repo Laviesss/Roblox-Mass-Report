@@ -1,10 +1,10 @@
 {
   "name": "rmr",
   "version": "3.0.0",
-  "description": "RMR - Professional Takedown Utility",
+  "description": "RMR - Roblox Mass Reporter",
   "main": "src/server.js",
   "scripts": {
-    "start": "node src/server.js",
+    "start": "cls || clear && pm2 delete RMR || true && pm2 start ecosystem.config.js --name RMR && pm2 logs RMR",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
