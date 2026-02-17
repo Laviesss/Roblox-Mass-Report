@@ -7,6 +7,7 @@ const QueueSchema = new mongoose.Schema({
     parentTargetId: String, // For linking sub-items to a main scrape
     status: { type: String, default: 'Pending' }, // Pending, In Progress, Success, Failed, Cooldown
     responseCode: Number,
+    responseBody: mongoose.Schema.Types.Mixed,
     verificationId: String,
     accountUsed: String,
     proxyUsed: String,

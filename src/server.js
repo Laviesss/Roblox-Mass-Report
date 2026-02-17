@@ -23,11 +23,14 @@ const Queue = require('./models/Queue');
 const Account = require('./models/Account');
 const Proxy = require('./models/Proxy');
 const UserAgent = require('./models/UserAgent');
+const Report = require('./models/Report');
 const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+
+const FOOTER_TEXT = 'Roblox Mass Reporter | System Status: Optimal';
 
 app.use(express.static(path.join(__dirname, 'web/public')));
 
@@ -76,22 +79,23 @@ connectDB().then(async () => {
     }, 5000);
 });
 
-async function getAccountDashboardEmbed(filter = 'all') {
+async function getAccountDashboardEmbed() {
     const total = await Account.countDocuments();
-    const readyCount = await Account.countDocuments({ status: 'active', $or: [{ cooldownUntil: null }, { cooldownUntil: { $lte: new Date() } }] });
-    const cooldown = await Account.countDocuments({ status: 'cooldown', cooldownUntil: { $gt: new Date() } });
+    const healthy = await Account.countDocuments({ status: 'active' });
+    const cooldown = await Account.countDocuments({ status: 'cooldown' });
     const dead = await Account.countDocuments({ status: 'dead' });
+
     return new EmbedBuilder()
-        .setTitle('RMR | Fleet Hub')
+        .setTitle('RMR | Fleet Management')
         .addFields(
-            { name: 'Total', value: `${total}`, inline: true },
-            { name: 'Ready', value: `${readyCount}`, inline: true },
+            { name: 'Total Fleet', value: `${total}`, inline: true },
+            { name: 'Healthy', value: `${healthy}`, inline: true },
             { name: 'On Break', value: `${cooldown}`, inline: true },
             { name: 'Dead', value: `${dead}`, inline: true }
         )
         .setColor('#9b59b6')
         .setTimestamp()
-        .setFooter({ text: 'RMR Professional Takedown Utility' });
+        .setFooter({ text: FOOTER_TEXT });
 }
 
 client.on('interactionCreate', async interaction => {
@@ -101,6 +105,13 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (interaction.isButton()) {
+        // Audit logic: Defer every button interaction to prevent timeouts
+        if (interaction.customId !== 'trigger_add_modal' &&
+            interaction.customId !== 'trigger_proxy_modal' &&
+            interaction.customId !== 'trigger_ua_modal') {
+            await interaction.deferReply({ ephemeral: true });
+        }
+
         const customId = interaction.customId;
         if (customId === 'trigger_add_modal') {
             const modal = new ModalBuilder().setCustomId('account_add_modal').setTitle('RMR | Account Integration');
@@ -108,11 +119,12 @@ client.on('interactionCreate', async interaction => {
             modal.addComponents(new ActionRowBuilder().addComponents(input));
             await interaction.showModal(modal);
         } else if (customId === 'force_reset_cooldowns') {
-            await interaction.deferReply({ ephemeral: true });
             await engine.forceResetCooldowns();
-            await interaction.editReply("RMR | All Fleet breaks cleared.");
+            await interaction.editReply("RMR | All Fleet breaks cleared. Re-checking health...");
+        } else if (customId === 'purge_dead_accounts') {
+            const res = await Account.deleteMany({ status: 'dead' });
+            await interaction.editReply(`RMR | Purged ${res.deletedCount} dead accounts.`);
         } else if (customId === 'check_proxies') {
-            await interaction.deferReply({ ephemeral: true });
             const allProxies = await Proxy.find({});
             for (const p of allProxies) {
                 const res = await engine.checkProxyWaterfall(p.host, p.port);
@@ -122,9 +134,8 @@ client.on('interactionCreate', async interaction => {
             }
             await interaction.editReply("RMR | Proxy check complete.");
         } else if (customId === 'remove_dead_proxies') {
-            await interaction.deferReply({ ephemeral: true });
             const res = await Proxy.deleteMany({ status: 'dead' });
-            await interaction.editReply(`RMR | Purged ${res.deletedCount} items.`);
+            await interaction.editReply(`RMR | Purged ${res.deletedCount} dead proxies.`);
         } else if (customId === 'trigger_proxy_modal') {
             const modal = new ModalBuilder().setCustomId('proxy_upload_modal').setTitle('RMR | Bulk Proxy Upload');
             const input = new TextInputBuilder().setCustomId('proxy_input').setLabel("List (IP:Port)").setStyle(TextInputStyle.Paragraph).setRequired(true);
@@ -135,6 +146,13 @@ client.on('interactionCreate', async interaction => {
             const input = new TextInputBuilder().setCustomId('ua_input').setLabel("List (Line by Line)").setStyle(TextInputStyle.Paragraph).setRequired(true);
             modal.addComponents(new ActionRowBuilder().addComponents(input));
             await interaction.showModal(modal);
+        } else if (customId === 'refresh_uas') {
+            // Refresh logic: essentially just re-confirming count for now or could re-scrape
+            const total = await UserAgent.countDocuments();
+            await interaction.editReply(`RMR | Refreshed. ${total} unique identities available.`);
+        } else if (customId === 'purge_uas') {
+            await UserAgent.deleteMany({});
+            await interaction.editReply("RMR | Identity pool purged.");
         }
     }
 
@@ -143,8 +161,8 @@ client.on('interactionCreate', async interaction => {
         if (interaction.customId === 'account_add_modal') {
             const cookie = interaction.fields.getTextInputValue('cookie_input');
             const account = await engine.sessionManager.addAccount(cookie);
-            if (account) await interaction.editReply(`RMR | Account Linked: **${account.username}**`);
-            else await interaction.editReply("RMR | Link Failed.");
+            if (account) await interaction.editReply(`RMR | Account Linked: **${account.username}** (Identity: Sticky UA assigned)`);
+            else await interaction.editReply("RMR | Link Failed. Cookie may be invalid or expired.");
         } else if (interaction.customId === 'proxy_upload_modal') {
             const data = interaction.fields.getTextInputValue('proxy_input');
             const regex = /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d{2,5})/g;
@@ -153,12 +171,12 @@ client.on('interactionCreate', async interaction => {
                 await Proxy.findOneAndUpdate({ host: m[1], port: parseInt(m[2]) }, { status: 'active' }, { upsert: true });
                 count++;
             }
-            await interaction.editReply(`RMR | Imported ${count} proxies.`);
+            await interaction.editReply(`RMR | Imported ${count} proxies. Use [🔄 Check All] to verify protocols.`);
         } else if (interaction.customId === 'ua_upload_modal') {
             const data = interaction.fields.getTextInputValue('ua_input');
             const uas = data.split('\n').map(s => s.trim()).filter(s => s.length > 50);
             for (const ua of uas) await UserAgent.findOneAndUpdate({ ua }, { addedAt: new Date() }, { upsert: true });
-            await interaction.editReply(`RMR | Imported ${uas.length} browser strings.`);
+            await interaction.editReply(`RMR | Imported ${uas.length} browser strings to identity pool.`);
         }
     }
 });

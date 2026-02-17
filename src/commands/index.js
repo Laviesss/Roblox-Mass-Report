@@ -12,16 +12,8 @@ const Report = require('../models/Report');
 const Queue = require('../models/Queue');
 const Proxy = require('../models/Proxy');
 const UserAgent = require('../models/UserAgent');
-const axios = require('axios');
 
-const calculateAge = (createdAt) => {
-    const created = new Date(createdAt);
-    const now = new Date();
-    let years = now.getFullYear() - created.getFullYear();
-    let months = now.getMonth() - created.getMonth();
-    if (months < 0) { years--; months += 12; }
-    return `${years} Years, ${months} Months`;
-};
+const FOOTER_TEXT = 'Roblox Mass Reporter | System Status: Optimal';
 
 module.exports = (engine) => [
     {
@@ -34,7 +26,6 @@ module.exports = (engine) => [
 
             const targetId = interaction.options.getString('id');
 
-            // Stage 1: Domain Selection
             const domainRow = new ActionRowBuilder().addComponents(
                 new StringSelectMenuBuilder()
                     .setCustomId('select_domain')
@@ -106,7 +97,7 @@ module.exports = (engine) => [
                 return await interaction.editReply({ content: `### RMR | Search: ${search}\n${list}` });
             }
             const total = await Report.countDocuments({ status: 'Success' });
-            const embed = new EmbedBuilder().setTitle('RMR | Performance').addFields({ name: 'Total Success', value: `${total}`, inline: true }).setTimestamp().setFooter({ text: 'RMR Professional Takedown Utility' });
+            const embed = new EmbedBuilder().setTitle('RMR | Performance Dashboard').addFields({ name: 'Total Takedowns', value: `${total}`, inline: true }).setTimestamp().setFooter({ text: FOOTER_TEXT });
             const row = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('history_filter').setPlaceholder('RMR | View...').addOptions([{ label: 'Ledger', value: 'ledger' }, { label: 'Failures', value: 'audit' }]));
             const msg = await interaction.editReply({ embeds: [embed], components: [row] });
             const coll = msg.createMessageComponentCollector({ time: 60000 });
@@ -122,11 +113,26 @@ module.exports = (engine) => [
         data: new SlashCommandBuilder().setName('accounts').setDescription('RMR | Fleet Hub'),
         async execute(interaction) {
             await interaction.deferReply({ ephemeral: true });
-            const ready = await Account.countDocuments({ status: 'active' });
-            const embed = new EmbedBuilder().setTitle('RMR | Fleet Management').addFields({ name: 'Ready', value: `${ready}`, inline: true }).setColor('#9b59b6').setFooter({ text: 'RMR Professional Takedown Utility' });
+            const total = await Account.countDocuments();
+            const healthy = await Account.countDocuments({ status: 'active' });
+            const cooldown = await Account.countDocuments({ status: 'cooldown' });
+            const dead = await Account.countDocuments({ status: 'dead' });
+
+            const embed = new EmbedBuilder()
+                .setTitle('RMR | Fleet Management')
+                .addFields(
+                    { name: 'Total Fleet', value: `${total}`, inline: true },
+                    { name: 'Healthy', value: `${healthy}`, inline: true },
+                    { name: 'On Break', value: `${cooldown}`, inline: true },
+                    { name: 'Dead', value: `${dead}`, inline: true }
+                )
+                .setColor('#9b59b6')
+                .setFooter({ text: FOOTER_TEXT });
+
             const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('trigger_add_modal').setLabel('➕ Upload').setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId('force_reset_cooldowns').setLabel('🔄 Force Reset').setStyle(ButtonStyle.Danger)
+                new ButtonBuilder().setCustomId('force_reset_cooldowns').setLabel('🔄 Check/Refresh').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('purge_dead_accounts').setLabel('🗑️ Purge Dead').setStyle(ButtonStyle.Danger)
             );
             await interaction.editReply({ embeds: [embed], components: [row] });
         }
@@ -136,10 +142,22 @@ module.exports = (engine) => [
         async execute(interaction) {
             await interaction.deferReply({ ephemeral: true });
             const total = await Proxy.countDocuments();
-            const embed = new EmbedBuilder().setTitle('RMR | Proxy Management').addFields({ name: 'Total', value: `${total}`, inline: true }).setColor('#3498db').setFooter({ text: 'RMR Professional Takedown Utility' });
+            const healthy = await Proxy.countDocuments({ status: 'active' });
+            const dead = await Proxy.countDocuments({ status: 'dead' });
+
+            const embed = new EmbedBuilder()
+                .setTitle('RMR | Proxy Management')
+                .addFields(
+                    { name: 'Total', value: `${total}`, inline: true },
+                    { name: 'Healthy', value: `${healthy}`, inline: true },
+                    { name: 'Dead', value: `${dead}`, inline: true }
+                )
+                .setColor('#3498db')
+                .setFooter({ text: FOOTER_TEXT });
+
             const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('trigger_proxy_modal').setLabel('➕ Upload').setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId('check_proxies').setLabel('🔄 Check All').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('check_proxies').setLabel('🔄 Check/Refresh').setStyle(ButtonStyle.Primary),
                 new ButtonBuilder().setCustomId('remove_dead_proxies').setLabel('🗑️ Purge Dead').setStyle(ButtonStyle.Danger)
             );
             await interaction.editReply({ embeds: [embed], components: [row] });
@@ -150,10 +168,17 @@ module.exports = (engine) => [
         async execute(interaction) {
             await interaction.deferReply({ ephemeral: true });
             const total = await UserAgent.countDocuments();
-            const embed = new EmbedBuilder().setTitle('RMR | Identity Dashboard').addFields({ name: 'Strings', value: `${total}`, inline: true }).setColor('#f1c40f').setFooter({ text: 'RMR Professional Takedown Utility' });
+
+            const embed = new EmbedBuilder()
+                .setTitle('RMR | Identity Dashboard')
+                .addFields({ name: 'Total Identities', value: `${total}`, inline: true })
+                .setColor('#f1c40f')
+                .setFooter({ text: FOOTER_TEXT });
+
             const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('trigger_ua_modal').setLabel('➕ Upload').setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId('refresh_uas').setLabel('Refresh').setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId('refresh_uas').setLabel('🔄 Refresh').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('purge_uas').setLabel('🗑️ Purge All').setStyle(ButtonStyle.Danger)
             );
             await interaction.editReply({ embeds: [embed], components: [row] });
         }

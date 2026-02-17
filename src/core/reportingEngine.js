@@ -226,6 +226,7 @@ class ReportingEngine {
                 );
 
                 qItem.responseCode = res.status;
+                qItem.responseBody = res.data;
                 qItem.accountUsed = account.username;
                 qItem.proxyUsed = proxy ? `${proxy.host}:${proxy.port}` : 'None';
 
@@ -271,7 +272,8 @@ class ReportingEngine {
         const duration = Math.floor((Date.now() - stats.startTime) / 1000);
         let auditText = `ROBLOX MASS REPORTER AUDIT LOG\nTARGET: ${mainTarget.username}\nTIME: ${new Date().toLocaleString()}\n\n`;
         stats.results.forEach(r => {
-            auditText += `[${r.status}] ID: ${r.targetId} | Name: ${r.targetName} | Code: ${r.responseCode} | Acc: ${r.accountUsed} | Proxy: ${r.proxyUsed}\n`;
+            const bodyStr = JSON.stringify(r.responseBody || {});
+            auditText += `[${r.status}] ID: ${r.targetId} | Name: ${r.targetName} | Code: ${r.responseCode} | Acc: ${r.accountUsed} | Proxy: ${r.proxyUsed} | Response: ${bodyStr}\n`;
         });
 
         const auditFile = new AttachmentBuilder(Buffer.from(auditText), { name: 'audit_log.txt' });
