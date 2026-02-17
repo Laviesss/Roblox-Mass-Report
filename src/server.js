@@ -11,7 +11,10 @@ const {
     TextInputBuilder,
     TextInputStyle,
     ActionRowBuilder,
-    EmbedBuilder
+    EmbedBuilder,
+    ButtonStyle,
+    ButtonBuilder,
+    StringSelectMenuBuilder
 } = require('discord.js');
 const connectDB = require('./core/database');
 const ReportingEngine = require('./core/reportingEngine');
@@ -49,6 +52,51 @@ connectDB().then(async () => {
     }, 10000);
 });
 
+// Helper for Account Dashboard Embed
+async function getAccountDashboardEmbed(filter = 'all') {
+    const total = await Account.countDocuments();
+    const readyQuery = {
+        status: 'active',
+        $or: [{ cooldownUntil: null }, { cooldownUntil: { $lte: new Date() } }]
+    };
+    const ready = await Account.countDocuments(readyQuery);
+    const cooldownQuery = {
+        status: 'cooldown',
+        cooldownUntil: { $gt: new Date() }
+    };
+    const cooldown = await Account.countDocuments(cooldownQuery);
+    const dead = await Account.countDocuments({ status: 'dead' });
+
+    let query = {};
+    if (filter === 'ready') query = readyQuery;
+    else if (filter === 'cooldown') query = cooldownQuery;
+    else if (filter === 'dead') query = { status: 'dead' };
+
+    const accounts = await Account.find(query).limit(25);
+    const accountList = accounts.map(a => {
+        let status = "[Ready]";
+        if (a.status === 'dead') status = "[Token Error]";
+        else if (a.status === 'cooldown' && a.cooldownUntil > new Date()) {
+            const mins = Math.ceil((a.cooldownUntil - Date.now()) / 60000);
+            status = `[On Break: ${mins}m left]`;
+        }
+        return `• ${a.username}: ${status}`;
+    }).join('\n') || "No accounts found matching this filter.";
+
+    return new EmbedBuilder()
+        .setTitle('📊 Fleet Management')
+        .setDescription(`Filtering by: **${filter}**\n\n**Account List:**\n${accountList.length > 2000 ? accountList.substring(0, 1997) + "..." : accountList}`)
+        .addFields(
+            { name: 'Total', value: `${total}`, inline: true },
+            { name: 'Ready', value: `${ready}`, inline: true },
+            { name: 'On Break', value: `${cooldown}`, inline: true },
+            { name: 'Dead', value: `${dead}`, inline: true }
+        )
+        .setColor('#9b59b6')
+        .setTimestamp()
+        .setFooter({ text: 'Roblox-Mass-Reporter Control Center' });
+}
+
 // Discord Interaction Handler
 client.on('interactionCreate', async interaction => {
     // Slash Commands
@@ -57,7 +105,7 @@ client.on('interactionCreate', async interaction => {
         if (command) await command.execute(interaction);
     }
 
-    // Button Clicks (Add Account Modal)
+    // Button Clicks
     if (interaction.isButton()) {
         if (interaction.customId === 'trigger_add_modal') {
             const modal = new ModalBuilder()
@@ -73,8 +121,14 @@ client.on('interactionCreate', async interaction => {
 
             const row = new ActionRowBuilder().addComponents(cookieInput);
             modal.addComponents(row);
-
             await interaction.showModal(modal);
+        } else if (interaction.customId === 'refresh_accounts') {
+            const embed = await getAccountDashboardEmbed();
+            await interaction.update({ embeds: [embed] });
+        } else if (interaction.customId === 'force_reset_cooldowns') {
+            await engine.forceResetCooldowns();
+            const embed = await getAccountDashboardEmbed();
+            await interaction.update({ content: "✅ All fleet cooldowns have been manually cleared.", embeds: [embed] });
         }
     }
 
@@ -93,30 +147,11 @@ client.on('interactionCreate', async interaction => {
         }
     }
 
-    // Select Menu (Dashboard Filter)
+    // Select Menu
     if (interaction.isStringSelectMenu()) {
-        if (interaction.customId === 'filter_accounts') {
+        if (interaction.customId === 'filter_accounts_detailed') {
             const filter = interaction.values[0];
-            const query = filter === 'all' ? {} : { status: filter };
-
-            const totalCount = await Account.countDocuments();
-            const activeCount = await Account.countDocuments({ status: 'active' });
-            const cooldownCount = await Account.countDocuments({ status: 'cooldown' });
-            const deadCount = await Account.countDocuments({ status: 'dead' });
-
-            const filteredAccounts = await Account.find(query).limit(15);
-            const accountList = filteredAccounts.map(a => `• ${a.username} [${a.status}]`).join('\n') || 'No accounts found.';
-
-            const embed = new EmbedBuilder()
-                .setTitle('📊 Account Management Dashboard')
-                .setColor('#bb86fc')
-                .setDescription(`Filtering by: **${filter}**`)
-                .addFields(
-                    { name: 'Stats', value: `Total: ${totalCount} | Active: ${activeCount} | Dead: ${deadCount}`, inline: false },
-                    { name: 'Accounts', value: accountList }
-                )
-                .setTimestamp();
-
+            const embed = await getAccountDashboardEmbed(filter);
             await interaction.update({ embeds: [embed] });
         }
     }

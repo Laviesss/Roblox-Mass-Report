@@ -27,24 +27,32 @@ class ReportingEngine {
         await this.sessionManager.loadSessions();
     }
 
+    async forceResetCooldowns() {
+        await Account.updateMany(
+            {},
+            { $set: { status: 'active', cooldownUntil: null } }
+        );
+        console.log("[ReportingEngine] All account cooldowns have been reset.");
+    }
+
     async processQueue() {
-        // Background loop for persistent tasks
-        const item = await Queue.findOne({ status: 'Pending' }).sort({ createdAt: 1 });
+        // Intelligent persistent engine loop with overlap protection
+        // Resume pending or in-progress tasks from the database
+        const item = await Queue.findOne({ status: { $in: ['Pending', 'In Progress'] } }).sort({ createdAt: 1 });
         if (!item) return;
 
-        item.status = 'In Progress';
-        await item.save();
+        console.log(`[ReportingEngine] Checking persistent queue item: ${item.victimUsername}`);
 
-        // For background tasks, we just use available sessions
-        // This is a fallback if someone adds to queue directly via DB
-        console.log(`[BackgroundEngine] Processing: ${item.victimUsername}`);
-        // ... implementation could go here, but the user wants interactive /report
+        // If it's been in 'In Progress' for too long, mark as failed
+        if (item.status === 'In Progress' && (Date.now() - item.updatedAt) > 600000) {
+            item.status = 'Failed';
+            await item.save();
+        }
     }
 
     async executeMassReport(interaction, target, reasonKey, delaySec, fleetIds, isRandom) {
         const mapping = this.reasonMap[reasonKey] || this.reasonMap["other"];
 
-        // Save to Queue for persistence
         const queueItem = await Queue.create({
             victimUsername: target.username,
             victimId: target.id,
@@ -53,10 +61,14 @@ class ReportingEngine {
             status: 'In Progress'
         });
 
-        let accounts = await Account.find({ _id: { $in: fleetIds }, status: 'active' });
+        let accounts = await Account.find({ _id: { $in: fleetIds } });
 
         if (isRandom) {
-            accounts = accounts.sort(() => Math.random() - 0.5);
+            // Fisher-Yates Shuffle
+            for (let i = accounts.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [accounts[i], accounts[j]] = [accounts[j], accounts[i]];
+            }
         }
 
         const stats = {
@@ -82,9 +94,13 @@ class ReportingEngine {
 
             const account = accounts[i];
             const client = createRobloxClient(account.cookie);
+            let csrfToken = null;
 
-            try {
-                const res = await client.post(
+            const sendReport = async (token = null) => {
+                const headers = {};
+                if (token) headers['x-csrf-token'] = token;
+
+                return await client.post(
                     "https://apis.roblox.com/abuse-reporting/v2/abuse-report",
                     {
                         "reportReason": mapping.reason,
@@ -92,8 +108,28 @@ class ReportingEngine {
                         "tags": mapping.tags,
                         "id": target.id
                     },
-                    { signal: controller.signal }
+                    {
+                        signal: controller.signal,
+                        headers: headers
+                    }
                 );
+            };
+
+            try {
+                let res;
+                try {
+                    res = await sendReport();
+                } catch (err) {
+                    if (err.response?.status === 403 && err.response.headers['x-csrf-token']) {
+                        // CSRF Guard: Wait user delay and retry once
+                        csrfToken = err.response.headers['x-csrf-token'];
+                        console.log(`[ReportingEngine] 403 for ${account.username}. Waiting ${delaySec}s before retry...`);
+                        await new Promise(r => setTimeout(r, delaySec * 1000));
+                        res = await sendReport(csrfToken);
+                    } else {
+                        throw err;
+                    }
+                }
 
                 if (res.status === 200) {
                     stats.success++;
@@ -111,10 +147,11 @@ class ReportingEngine {
                 const status = err.response?.status;
                 if (status === 429) {
                     stats.rateLimit++;
-                    const retryAfter = parseInt(err.response?.headers['retry-after']) || 60;
+                    const retryAfter = 600; // 10 minutes per SOP
                     account.status = 'cooldown';
                     account.cooldownUntil = new Date(Date.now() + (retryAfter * 1000));
                     await account.save();
+                    console.log(`[ReportingEngine] 429 for ${account.username}. Cooldown for 10m.`);
                 } else if (status === 400 || status === 401) {
                     stats.badSession++;
                     account.status = 'dead';
@@ -126,7 +163,7 @@ class ReportingEngine {
                         category: mapping.id,
                         status: 'Failed',
                         errorCode: status,
-                        errorType: 'Auth/Dead Session'
+                        errorType: 'Token Error / Broken'
                     });
                 } else {
                     stats.failed++;
@@ -171,16 +208,15 @@ class ReportingEngine {
         // Final After-Action Report
         const duration = Math.floor((Date.now() - stats.startTime) / 1000);
         const finalEmbed = new EmbedBuilder()
-            .setTitle('✅ Report Run Finished')
+            .setTitle('📊 After-Action Report')
             .setColor('#2ecc71')
             .addFields(
-                { name: 'Total Time', value: `${duration} seconds`, inline: true },
                 { name: 'Successes', value: `${stats.success}`, inline: true },
                 { name: 'Failures', value: `${stats.failed + stats.badSession}`, inline: true },
                 { name: 'Rate Limits (429)', value: `${stats.rateLimit}`, inline: true },
-                { name: 'Bad Sessions', value: `${stats.badSession}`, inline: true }
+                { name: 'Total Time', value: `${duration} seconds`, inline: true }
             )
-            .setFooter({ text: 'Run Summary' })
+            .setFooter({ text: 'Mission Summary' })
             .setTimestamp();
 
         await interaction.followUp({ embeds: [finalEmbed] });

@@ -1,44 +1,40 @@
-# 📚 User Manual: Roblox-Mass-Reporter
+# 📚 User Guide: Roblox-Mass-Reporter
 
-This document explains how the bot works and what each part does in simple language.
-
----
-
-## 🛠️ Core Features
-
-### 1. Smart Reporting Engine
-The bot doesn't just send reports blindly. It has "brains" to handle common problems:
-*   **Wait and Retry:** If Roblox tells the bot to wait (CSRF errors), it waits 2 seconds and tries again automatically.
-*   **Break Detection:** If an account's session is broken (Error 400), the bot marks it as "Broken" and stops using it so it doesn't waste time.
-*   **Rate Limits:** If the bot is sending reports too fast, it will automatically put that account on "Cooldown" and switch to a different one.
-
-### 2. Interactive Reporting (/report)
-Reporting a user is now a simple 5-step process:
-1.  **Check Target:** See the person's profile, how old their account is, and if they are online.
-2.  **Pick Reason:** Choose from 10 clear reasons like "Bullying" or "Scamming".
-3.  **Set Speed:** Decide how many seconds to wait between reports (1s to 15s).
-4.  **Pick Accounts:** Select exactly which accounts from your database you want to use. You can scroll through pages if you have many.
-5.  **Choose Style:** Run them in order or randomize them to be less predictable.
-
-### 3. History Dashboard (/reports)
-Keep track of what your bot has been doing:
-*   **Stats:** See total successful reports and how many accounts are currently broken or waiting.
-*   **Recent History:** Look at the last 15 people reported.
-*   **Failed Reports:** See exactly which reports failed so you can fix your accounts.
-*   **Search:** Type a username to see every time the bot has reported that specific person.
+This guide explains how the bot works in simple language.
 
 ---
 
-## 🛡️ Security & Safety
+## 🛠️ Main Features
 
-*   **Kill Switch:** Use `/terminate` at any time to instantly stop all active reporting loops.
-*   **Private Info:** The bot uses Discord "Modals" for adding accounts. This means your cookies are never typed into a public chat where others can see them.
-*   **Safe Logs:** The bot never prints your full cookies in the logs. It only shows usernames or IDs to keep you safe.
+### 1. The Fleet Manager (/accounts)
+This is where you see your accounts.
+*   **Ready:** These accounts are good to go and can report right now.
+*   **On Break:** These accounts hit a "Rate Limit" (meaning they sent reports too fast). The bot puts them on a 10-minute break automatically.
+*   **Dead (Token Error):** These accounts have broken cookies. You'll need to add them again with a fresh cookie.
+*   **Force Reset:** If you want all your accounts to start working again immediately (ignoring their breaks), click the "Force Reset" button.
+
+### 2. The Report Wizard (/report)
+Reporting is now a 5-step process:
+1.  **Check Target:** The bot shows you the person's profile and if they are online to make sure you have the right target.
+2.  **Pick Reason:** Choose why you are reporting them from a list of 10 reasons.
+3.  **Choose Speed:** Pick how many seconds to wait between each report (1s to 15s).
+4.  **Pick Your Fleet:** Choose exactly which accounts you want to use. You can pick one, a few, or all of them.
+5.  **Run Order:** Decide if the accounts should go in order (Sequential) or be mixed up (Randomize).
+
+### 3. Connection Guard
+Roblox often tries to block automated tools with "CSRF" errors.
+*   The bot is smart: if it hits this error, it grabs the new key, waits for the delay you picked, and tries again once more.
+*   If an account still can't connect after the retry, the bot skips it and marks it as "Broken" in the database so it doesn't slow down the rest of your run.
+
+### 4. History Ledger (/reports)
+Check what the bot has been doing lately:
+*   **History Ledger:** A list of the last 20 reports, showing who was reported and which of your accounts did it.
+*   **Failure Audit:** A specific list of reports that didn't work. This helps you see if certain accounts are broken.
 
 ---
 
 ## 🚀 Pro Tips
 
-*   **Use Delays:** Don't always use the 1-second delay. Using 5s or 10s makes the reporting look more natural and helps avoid rate limits.
-*   **Monitor Logs:** Use `pm2 logs` on your computer to see real-time progress and detailed error messages if something isn't working.
-*   **Check Accounts:** Regularly use `/reports` to see if any of your accounts have been marked as "Broken". You'll need to replace those cookies using the `/accounts` menu.
+*   **Don't Rush:** Using a 5-second or 10-second delay is usually safer than 1 second. It makes the reporting look more "human" to Roblox.
+*   **Keep Cookies Fresh:** If an account shows "Token Error", it means the cookie has expired or been logged out. Just add it again using the "Add New Account" button in `/accounts`.
+*   **Check the Dashboard:** The bot has a simple web dashboard where you can see live progress if you're running it on a server.

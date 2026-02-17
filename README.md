@@ -1,12 +1,12 @@
-# 🤖 Roblox-Mass-Reporter - Easy Setup Guide
+# 🤖 Roblox-Mass-Reporter - Easy Guide
 
-This tool helps you manage multiple Roblox accounts and report users who break the rules. It runs on your computer and is controlled through Discord.
+This tool lets you use multiple Roblox accounts to report people who break the rules. It works on your computer and you control it through Discord.
 
-## 📋 What you need before starting
+## 📋 What you need first
 
-*   **Node.js:** (Version 18 or newer) - This runs the code.
-*   **MongoDB Atlas:** A free online database to save your accounts and reports.
-*   **Discord Bot:** You'll need to create a bot on the Discord Developer Portal.
+*   **Node.js:** (Version 18 or newer) - You need this to run the code.
+*   **MongoDB Atlas:** A free online database to save your accounts and history.
+*   **Discord Bot:** You need to create a bot on the Discord Developer Portal.
 
 ---
 
@@ -15,7 +15,7 @@ This tool helps you manage multiple Roblox accounts and report users who break t
 Open your terminal (like Command Prompt or PowerShell) in this folder and type:
 
 ```bash
-# Install the project files
+# Download the project files
 npm install
 
 # Install PM2 (This keeps the bot running even if it crashes)
@@ -41,7 +41,7 @@ PORT=3000
 
 ## ⚡ Step 3: Start the Bot
 
-To start the bot and keep it running in the background, type:
+To start the bot and keep it running even if you close the window, type:
 
 ```bash
 # Start the bot
@@ -56,30 +56,28 @@ pm2 startup
 
 ## 🛠️ How to manage the bot
 
-Use these simple commands in your terminal:
+Use these simple words in your terminal:
 
-*   `pm2 logs` — See what the bot is doing right now (and check for errors).
-*   `pm2 status` — See if the bot is online.
+*   `pm2 logs` — See exactly what the bot is doing (and see if there are errors).
+*   `pm2 status` — See if the bot is online or offline.
 *   `pm2 stop Roblox-Mass-Reporter` — Turn the bot off.
-*   `pm2 restart Roblox-Mass-Reporter` — Restart the bot.
+*   `pm2 restart Roblox-Mass-Reporter` — Refresh the bot.
 
 ---
 
-## 🎮 Discord Commands
+## 🎮 Commands you can use in Discord
 
-Once the bot is online, use these in Discord:
-
-*   `/report` — Start the multi-step setup to report someone. You'll pick a target, a reason, a delay, and which accounts to use.
-*   `/reports` — See how the bot is performing and check recent history.
-*   `/accounts` — Add or manage your Roblox accounts.
-*   `/terminate` — Stop everything immediately if something goes wrong.
+*   `/report` — Start the step-by-step wizard to report someone. It will ask for the target, the reason, the speed, and which accounts to use.
+*   `/accounts` — See your fleet of accounts. You can see who is ready, who is on break, and who is broken. You can also add new accounts here.
+*   `/reports` — See a history of the last 20 reports and check for failures.
+*   `/terminate` — Stop everything immediately if you need to.
 
 ---
 
-## 🪟 Note for Windows Users
+## 🪟 If you use Windows
 
-If you want the bot to start by itself when you turn on your PC:
-1. Open PowerShell as Administrator.
+If you want the bot to start automatically when you turn on your PC:
+1. Open PowerShell as an Administrator.
 2. Type: `npm install pm2-windows-startup -g`
 3. Type: `pm2-startup install`
 4. Type: `pm2 save`

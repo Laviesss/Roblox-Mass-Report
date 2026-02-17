@@ -32,6 +32,17 @@ module.exports = (engine) => [
             .addStringOption(opt => opt.setName('username').setDescription('Target username').setRequired(true)),
         async execute(interaction) {
             await interaction.deferReply();
+
+            // Check if any accounts are ready before starting the wizard
+            const readyCount = await Account.countDocuments({
+                status: 'active',
+                $or: [{ cooldownUntil: null }, { cooldownUntil: { $lte: new Date() } }]
+            });
+
+            if (readyCount === 0) {
+                return interaction.editReply("No accounts are ready to use right now. Check /accounts for cooldowns.");
+            }
+
             const username = interaction.options.getString('username');
 
             let target;
@@ -59,14 +70,14 @@ module.exports = (engine) => [
 
             // Step 1: Target Profile
             const embed = new EmbedBuilder()
-                .setTitle(`Report Setup: ${target.username}`)
+                .setTitle(`Target Intel: ${target.username}`)
                 .setThumbnail(target.avatar)
                 .addFields(
                     { name: 'Joined', value: new Date(target.joined).toLocaleDateString(), inline: true },
                     { name: 'Account Age', value: calculateAge(target.joined), inline: true },
                     { name: 'Online Status', value: target.online ? "🟢 Online" : "⚪ Offline", inline: true }
                 )
-                .setColor('#3498db')
+                .setColor(target.online ? '#00FF00' : '#808080')
                 .setFooter({ text: 'Step 1: Verify Target' });
 
             const nextBtn = new ActionRowBuilder().addComponents(
@@ -97,7 +108,7 @@ module.exports = (engine) => [
                                 value: key
                             })))
                     );
-                    await i.update({ content: "### Step 2: Why are you reporting them?", embeds: [], components: [reasonRow] });
+                    await i.update({ content: "### Step 2: Reason Selection", embeds: [], components: [reasonRow] });
                 }
 
                 if (i.customId === 'select_reason') {
@@ -114,7 +125,7 @@ module.exports = (engine) => [
                                 { label: '15 Seconds', value: '15' }
                             ])
                     );
-                    await i.update({ content: "### Step 3: How fast should we send reports?", components: [delayRow] });
+                    await i.update({ content: "### Step 3: Delay Selection", components: [delayRow] });
                 }
 
                 if (i.customId === 'select_delay') {
@@ -133,7 +144,7 @@ module.exports = (engine) => [
                         new ButtonBuilder().setCustomId('go_seq').setLabel('Go (Sequential)').setStyle(ButtonStyle.Success),
                         new ButtonBuilder().setCustomId('go_rand').setLabel('Go (Randomize)').setStyle(ButtonStyle.Secondary)
                     );
-                    await i.update({ content: `### Final Step: Ready to start?\nSelected: **${state.selectedAccounts.length} accounts**`, components: [goRow] });
+                    await i.update({ content: `### Final Step: Order\nSelected: **${state.selectedAccounts.length} accounts**`, components: [goRow] });
                 }
 
                 if (i.customId === 'go_seq' || i.customId === 'go_rand') {
@@ -145,7 +156,15 @@ module.exports = (engine) => [
             });
 
             async function updateAccountPicker(i) {
-                const allAccounts = await Account.find({ status: 'active' });
+                const allAccounts = await Account.find({
+                    status: 'active',
+                    $or: [{ cooldownUntil: null }, { cooldownUntil: { $lte: new Date() } }]
+                });
+
+                if (allAccounts.length === 0) {
+                    return i.update({ content: "No accounts are ready to use right now.", components: [] });
+                }
+
                 const pageSize = 25;
                 const totalPages = Math.ceil(allAccounts.length / pageSize);
                 const start = state.page * pageSize;
@@ -170,7 +189,7 @@ module.exports = (engine) => [
                 const rows = [new ActionRowBuilder().addComponents(menu)];
                 if (totalPages > 1) rows.push(buttons);
 
-                await i.update({ content: "### Step 4: Which accounts should we use?", components: rows });
+                await i.update({ content: "### Step 4: Account Selection", components: rows });
             }
         }
     },
@@ -180,6 +199,7 @@ module.exports = (engine) => [
             .setDescription('View report history and bot performance'),
         async execute(interaction) {
             await interaction.deferReply();
+
             const totalSuccess = await Report.countDocuments({ status: 'Success' });
             const cooldownCount = await Account.countDocuments({ status: 'cooldown' });
             const deadCount = await Account.countDocuments({ status: 'dead' });
@@ -199,8 +219,8 @@ module.exports = (engine) => [
                     .setCustomId('history_filter')
                     .setPlaceholder('What would you like to see?')
                     .addOptions([
-                        { label: 'Recent History', value: 'recent', description: 'Last 15 reports sent' },
-                        { label: 'Failed Reports', value: 'failed', description: 'Reports with 400 or 403 errors' },
+                        { label: 'History Ledger', value: 'ledger', description: 'Last 20 reports sent' },
+                        { label: 'Failure Audit', value: 'audit', description: 'Reports with errors' },
                         { label: 'Search by Target', value: 'search', description: 'View history for a specific person' }
                     ])
             );
@@ -210,14 +230,14 @@ module.exports = (engine) => [
 
             collector.on('collect', async i => {
                 const filter = i.values[0];
-                if (filter === 'recent') {
-                    const recent = await Report.find().sort({ timestamp: -1 }).limit(15);
-                    const list = recent.map(r => `• ${r.victimUsername}: ${r.status}`).join('\n') || "No history yet.";
-                    await i.update({ content: `### Recent History\n${list}`, embeds: [], components: [filterRow] });
-                } else if (filter === 'failed') {
-                    const failed = await Report.find({ errorCode: { $in: [400, 403] } }).sort({ timestamp: -1 }).limit(15);
-                    const list = failed.map(r => `• ${r.victimUsername}: Error ${r.errorCode} (${r.errorType})`).join('\n') || "No failed reports found.";
-                    await i.update({ content: `### Failed Reports (Broken Sessions)\n${list}`, embeds: [], components: [filterRow] });
+                if (filter === 'ledger') {
+                    const recent = await Report.find().sort({ timestamp: -1 }).limit(20);
+                    const list = recent.map(r => `• ${r.victimUsername} hit by ID ${r.reporterId}: ${r.status}`).join('\n') || "No history yet.";
+                    await i.update({ content: `### History Ledger\n${list}`, embeds: [], components: [filterRow] });
+                } else if (filter === 'audit') {
+                    const failed = await Report.find({ status: { $ne: 'Success' } }).sort({ timestamp: -1 }).limit(20);
+                    const list = failed.map(r => `• ${r.victimUsername}: ${r.status} (${r.errorType || 'Unknown'})`).join('\n') || "No failed reports found.";
+                    await i.update({ content: `### Failure Audit\n${list}`, embeds: [], components: [filterRow] });
                 } else if (filter === 'search') {
                     await i.update({ content: "Please use `/reports_search [username]` to search for a specific target.", components: [] });
                 }
@@ -237,8 +257,66 @@ module.exports = (engine) => [
         }
     },
     {
-        data: new SlashCommandBuilder()
-            .setName('scrape')
+        data: new SlashCommandBuilder().setName('accounts')
+            .setDescription('Manage your accounts'),
+        async execute(interaction) {
+            const total = await Account.countDocuments();
+            const ready = await Account.countDocuments({
+                status: 'active',
+                $or: [{ cooldownUntil: null }, { cooldownUntil: { $lte: new Date() } }]
+            });
+            const cooldown = await Account.countDocuments({
+                status: 'cooldown',
+                cooldownUntil: { $gt: new Date() }
+            });
+            const dead = await Account.countDocuments({ status: 'dead' });
+
+            const accounts = await Account.find({});
+            const accountList = accounts.map(a => {
+                let status = "[Ready]";
+                if (a.status === 'dead') status = "[Token Error]";
+                else if (a.status === 'cooldown' && a.cooldownUntil > new Date()) {
+                    const mins = Math.ceil((a.cooldownUntil - Date.now()) / 60000);
+                    status = `[On Break: ${mins}m left]`;
+                }
+                return `• ${a.username}: ${status}`;
+            }).join('\n') || "No accounts found.";
+
+            const embed = new EmbedBuilder()
+                .setTitle('📊 Fleet Management')
+                .addFields(
+                    { name: 'Total', value: `${total}`, inline: true },
+                    { name: 'Ready', value: `${ready}`, inline: true },
+                    { name: 'On Break', value: `${cooldown}`, inline: true },
+                    { name: 'Dead', value: `${dead}`, inline: true }
+                )
+                .setDescription(`**Account List:**\n${accountList.length > 2000 ? accountList.substring(0, 1997) + "..." : accountList}`)
+                .setColor('#9b59b6')
+                .setTimestamp();
+
+            const filterRow = new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                    .setCustomId('filter_accounts_detailed')
+                    .setPlaceholder('Filter view...')
+                    .addOptions([
+                        { label: 'All', value: 'all' },
+                        { label: 'Ready', value: 'ready' },
+                        { label: 'On Break', value: 'cooldown' },
+                        { label: 'Dead', value: 'dead' }
+                    ])
+            );
+
+            const buttons = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('trigger_add_modal').setLabel('Add New Account').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('refresh_accounts').setLabel('Refresh').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('force_reset_cooldowns').setLabel('Force Reset').setStyle(ButtonStyle.Danger)
+            );
+
+            await interaction.reply({ embeds: [embed], components: [filterRow, buttons] });
+        }
+    },
+    {
+        data: new SlashCommandBuilder().setName('scrape')
             .setDescription('Get detailed target intelligence')
             .addStringOption(opt => opt.setName('username').setDescription('Target username').setRequired(true)),
         async execute(interaction) {
@@ -253,36 +331,24 @@ module.exports = (engine) => [
                     axios.get(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${id}&size=150x150&format=Png&isCircular=false`),
                     axios.post("https://presence.roblox.com/v1/presence/users", { userIds: [id] })
                 ]);
+
+                const bio = detail.data.description ? (detail.data.description.length > 200 ? detail.data.description.substring(0, 197) + "..." : detail.data.description) : "No bio.";
                 const embed = new EmbedBuilder()
                     .setTitle(`Intelligence: ${detail.data.name}`)
                     .setThumbnail(thumb.data.data[0]?.imageUrl)
                     .addFields(
+                        { name: 'Joined', value: new Date(detail.data.created).toLocaleDateString(), inline: true },
                         { name: 'Account Age', value: calculateAge(detail.data.created), inline: true },
                         { name: 'Status', value: presence.data.userPresences[0]?.userPresenceType >= 1 ? "🟢 Online" : "⚪ Offline", inline: true },
-                        { name: 'UserID', value: `${id}`, inline: true }
-                    ).setColor('#2ecc71');
+                        { name: 'UserID', value: `${id}`, inline: true },
+                        { name: 'Bio', value: bio }
+                    ).setColor(presence.data.userPresences[0]?.userPresenceType >= 1 ? '#00FF00' : '#808080');
                 await interaction.editReply({ embeds: [embed] });
             } catch (err) { await interaction.editReply(`❌ Error: ${err.message}`); }
         }
     },
     {
-        data: new SlashCommandBuilder().setName('status').setDescription('Get system status'),
-        async execute(interaction) {
-            const active = await Account.countDocuments({ status: 'active' });
-            const inProgress = await Queue.countDocuments({ status: 'In Progress' });
-            await interaction.reply(`### System Status\nActive Accounts: **${active}**\nActive Tasks: **${inProgress}**\nUptime: **${Math.floor(process.uptime())}s**`);
-        }
-    },
-    {
-        data: new SlashCommandBuilder().setName('terminate').setDescription('Stop everything immediately'),
-        async execute(interaction) {
-            engine.terminateAll();
-            await interaction.reply("🔴 Everything has been stopped.");
-        }
-    },
-    {
-        data: new SlashCommandBuilder()
-            .setName('inventory_check')
+        data: new SlashCommandBuilder().setName('inventory_check')
             .setDescription('Check total RAP of a user')
             .addStringOption(opt => opt.setName('username').setDescription('Target username').setRequired(true)),
         async execute(interaction) {
@@ -299,57 +365,10 @@ module.exports = (engine) => [
         }
     },
     {
-        data: new SlashCommandBuilder()
-            .setName('slowmode')
-            .setDescription('Set global delay (Simulation)')
-            .addIntegerOption(opt => opt.setName('sec').setDescription('Seconds').setRequired(true)),
+        data: new SlashCommandBuilder().setName('terminate').setDescription('Stop everything immediately'),
         async execute(interaction) {
-            await interaction.reply(`Global delay set to ${interaction.options.getInteger('sec')}s.`);
-        }
-    },
-    {
-        data: new SlashCommandBuilder().setName('accounts').setDescription('Interactive Account Management Dashboard'),
-        async execute(interaction) {
-            const total = await Account.countDocuments();
-            const active = await Account.countDocuments({ status: 'active' });
-            const cooldown = await Account.countDocuments({ status: 'cooldown' });
-            const dead = await Account.countDocuments({ status: 'dead' });
-
-            const firstAccounts = await Account.find({}).limit(15);
-            const accountList = firstAccounts.map(a => `• ${a.username} [${a.status}]`).join('\n') || 'No accounts found.';
-
-            const embed = new EmbedBuilder()
-                .setTitle('📊 Account Management Dashboard')
-                .setDescription('Filtering by: **all**')
-                .setColor('#bb86fc')
-                .addFields(
-                    { name: 'Stats', value: `Total: ${total} | Active: ${active} | Dead: ${dead}`, inline: false },
-                    { name: 'Accounts', value: accountList }
-                )
-                .setTimestamp()
-                .setFooter({ text: 'Roblox-Mass-Reporter Control Center' });
-
-            const filterRow = new ActionRowBuilder()
-                .addComponents(
-                    new StringSelectMenuBuilder()
-                        .setCustomId('filter_accounts')
-                        .setPlaceholder('Filter account view...')
-                        .addOptions([
-                            { label: 'View All', value: 'all' },
-                            { label: 'Active Only', value: 'active' },
-                            { label: 'Show Dead', value: 'dead' },
-                        ])
-                );
-
-            const actionRow = new ActionRowBuilder()
-                .addComponents(
-                    new ButtonBuilder()
-                        .setCustomId('trigger_add_modal')
-                        .setLabel('Add New Account')
-                        .setStyle(ButtonStyle.Success)
-                );
-
-            await interaction.reply({ embeds: [embed], components: [filterRow, actionRow] });
+            engine.terminateAll();
+            await interaction.reply("🔴 Everything has been stopped.");
         }
     }
 ];
