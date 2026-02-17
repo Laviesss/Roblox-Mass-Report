@@ -308,13 +308,48 @@ module.exports = (engine) => [
         }
     },
     {
-        data: new SlashCommandBuilder().setName('accounts').setDescription('Manage your accounts'),
+        data: new SlashCommandBuilder().setName('accounts').setDescription('Interactive Account Management Dashboard'),
         async execute(interaction) {
             const total = await Account.countDocuments();
             const active = await Account.countDocuments({ status: 'active' });
-            const embed = new EmbedBuilder().setTitle('Account Hub').setDescription(`Total: ${total}\nWorking: ${active}`).setColor('#9b59b6');
-            const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('trigger_add_modal').setLabel('Add Account').setStyle(ButtonStyle.Success));
-            await interaction.reply({ embeds: [embed], components: [row] });
+            const cooldown = await Account.countDocuments({ status: 'cooldown' });
+            const dead = await Account.countDocuments({ status: 'dead' });
+
+            const firstAccounts = await Account.find({}).limit(15);
+            const accountList = firstAccounts.map(a => `• ${a.username} [${a.status}]`).join('\n') || 'No accounts found.';
+
+            const embed = new EmbedBuilder()
+                .setTitle('📊 Account Management Dashboard')
+                .setDescription('Filtering by: **all**')
+                .setColor('#bb86fc')
+                .addFields(
+                    { name: 'Stats', value: `Total: ${total} | Active: ${active} | Dead: ${dead}`, inline: false },
+                    { name: 'Accounts', value: accountList }
+                )
+                .setTimestamp()
+                .setFooter({ text: 'Roblox-Mass-Reporter Control Center' });
+
+            const filterRow = new ActionRowBuilder()
+                .addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId('filter_accounts')
+                        .setPlaceholder('Filter account view...')
+                        .addOptions([
+                            { label: 'View All', value: 'all' },
+                            { label: 'Active Only', value: 'active' },
+                            { label: 'Show Dead', value: 'dead' },
+                        ])
+                );
+
+            const actionRow = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('trigger_add_modal')
+                        .setLabel('Add New Account')
+                        .setStyle(ButtonStyle.Success)
+                );
+
+            await interaction.reply({ embeds: [embed], components: [filterRow, actionRow] });
         }
     }
 ];
