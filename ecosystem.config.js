@@ -1,6 +1,6 @@
 module.exports = {
   apps : [{
-    name: "Roblox Mass Reporter",
+    name: "RMR",
     script: "./src/server.js",
     watch: false,
     autorestart: true,

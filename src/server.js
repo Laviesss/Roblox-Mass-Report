@@ -1,4 +1,5 @@
 require('dotenv').config();
+process.title = 'RMR';
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -41,6 +42,7 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const commands = setupCommands(engine);
 
 let isProcessing = false;
+const wizardSessions = new Map();
 connectDB().then(async () => {
     console.log(`
     ██████╗ ███╗   ███╗██████╗
@@ -118,16 +120,64 @@ client.on('interactionCreate', async interaction => {
         if (command) await command.execute(interaction);
     }
 
+    if (interaction.isStringSelectMenu()) {
+        if (interaction.customId === 'report_select_domain') {
+            const domain = interaction.values[0];
+            wizardSessions.set(interaction.user.id, { domain });
+
+            const modal = new ModalBuilder()
+                .setCustomId('report_context_modal')
+                .setTitle('RMR | Target Specification');
+
+            const idInput = new TextInputBuilder()
+                .setCustomId('target_id')
+                .setLabel('Target ID (User/Game/Group)')
+                .setStyle(TextInputStyle.Short)
+                .setPlaceholder('Enter the ID here...')
+                .setRequired(true);
+
+            const reasonInput = new TextInputBuilder()
+                .setCustomId('target_reason')
+                .setLabel('Reason / Comment')
+                .setStyle(TextInputStyle.Paragraph)
+                .setPlaceholder('Automation detected ToS violation...')
+                .setRequired(true);
+
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(idInput),
+                new ActionRowBuilder().addComponents(reasonInput)
+            );
+
+            await interaction.showModal(modal);
+        }
+    }
+
     if (interaction.isButton()) {
         // Audit logic: Defer every button interaction to prevent timeouts
-        if (interaction.customId !== 'trigger_add_modal' &&
-            interaction.customId !== 'trigger_proxy_modal' &&
-            interaction.customId !== 'trigger_ua_modal') {
+        const skipDefer = [
+            'trigger_add_modal',
+            'trigger_proxy_modal',
+            'trigger_ua_modal',
+            'report_confirm_start',
+            'report_confirm_cancel'
+        ];
+
+        if (!skipDefer.includes(interaction.customId)) {
             await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
         }
 
         const customId = interaction.customId;
-        if (customId === 'trigger_add_modal') {
+        if (customId === 'report_confirm_start') {
+            const session = wizardSessions.get(interaction.user.id);
+            if (!session) return interaction.reply({ content: 'RMR | Session expired.', flags: [MessageFlags.Ephemeral] });
+
+            await interaction.update({ content: '🚀 RMR | Purge Started. Monitoring progress...', embeds: [], components: [] });
+            await engine.executeMassReportFromDiscovery(interaction, session);
+            wizardSessions.delete(interaction.user.id);
+        } else if (customId === 'report_confirm_cancel') {
+            wizardSessions.delete(interaction.user.id);
+            await interaction.update({ content: '❌ RMR | Operation Cancelled.', embeds: [], components: [] });
+        } else if (customId === 'trigger_add_modal') {
             const modal = new ModalBuilder().setCustomId('account_add_modal').setTitle('RMR | Account Integration');
             const input = new TextInputBuilder().setCustomId('cookie_input').setLabel(".ROBLOSECURITY").setStyle(TextInputStyle.Paragraph).setRequired(true);
             modal.addComponents(new ActionRowBuilder().addComponents(input));
@@ -171,8 +221,43 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (interaction.isModalSubmit()) {
-        await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
-        if (interaction.customId === 'account_add_modal') {
+        if (interaction.customId !== 'report_context_modal') {
+            await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+        }
+
+        if (interaction.customId === 'report_context_modal') {
+            const session = wizardSessions.get(interaction.user.id);
+            if (!session) return interaction.reply({ content: 'RMR | Session expired.', flags: [MessageFlags.Ephemeral] });
+
+            const targetId = interaction.fields.getTextInputValue('target_id');
+            const reason = interaction.fields.getTextInputValue('target_reason');
+
+            session.targetId = targetId;
+            session.reason = reason;
+
+            await interaction.reply({ content: '🔍 **RMR Scraper Engine: Active**\nHunting for linked assets and sub-places...', flags: [MessageFlags.Ephemeral] });
+
+            // Start scraping
+            const discovery = await engine.performDiscovery(session.targetId, session.domain);
+            session.targets = discovery.targets;
+
+            const embed = new EmbedBuilder()
+                .setTitle('🚀 RMR | Purge Confirmation')
+                .setDescription(`RMR has discovered the following footprint for target **${targetId}**:`)
+                .addFields(
+                    { name: 'Discovered Items', value: `${discovery.targets.length}`, inline: true },
+                    { name: 'Mapping Detail', value: discovery.summary, inline: false }
+                )
+                .setColor('#e74c3c')
+                .setFooter({ text: FOOTER_TEXT });
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('report_confirm_start').setLabel('START PURGE').setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId('report_confirm_cancel').setLabel('CANCEL').setStyle(ButtonStyle.Secondary)
+            );
+
+            await interaction.editReply({ content: null, embeds: [embed], components: [row] });
+        } else if (interaction.customId === 'account_add_modal') {
             const cookie = interaction.fields.getTextInputValue('cookie_input');
             const account = await engine.sessionManager.addAccount(cookie);
             if (account) await interaction.editReply(`RMR | Account Linked: **${account.username}** (Identity: Sticky UA assigned)`);

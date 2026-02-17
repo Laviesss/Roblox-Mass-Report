@@ -7,8 +7,6 @@ const Proxy = require('../models/Proxy');
 const UserAgent = require('../models/UserAgent');
 const { EmbedBuilder, AttachmentBuilder } = require('discord.js');
 const axios = require('axios');
-const { HttpsProxyAgent } = require('https-proxy-agent');
-const { SocksProxyAgent } = require('socks-proxy-agent');
 
 class ReportingEngine {
     constructor() {
@@ -35,8 +33,6 @@ class ReportingEngine {
             const memoryUsage = process.memoryUsage().heapUsed / 1024 / 1024;
             if (memoryUsage > 450) {
                 console.warn(`[RMR] High Memory Alert: ${memoryUsage.toFixed(2)}MB. Flushing cache and restarting...`);
-                // Flush is handled by MongoDB persistence.
-                // In Render, we just exit and let the service reboot.
                 process.exit(1);
             }
         }, 30000);
@@ -64,6 +60,8 @@ class ReportingEngine {
         for (const proto of protocols) {
             try {
                 let agent;
+                const { HttpsProxyAgent } = require('https-proxy-agent');
+                const { SocksProxyAgent } = require('socks-proxy-agent');
                 if (proto === 'http') agent = new HttpsProxyAgent(`http://${host}:${port}`);
                 else if (proto === 'socks5') agent = new SocksProxyAgent(`socks5://${host}:${port}`);
                 else if (proto === 'socks4') agent = new SocksProxyAgent(`socks4://${host}:${port}`);
@@ -79,7 +77,6 @@ class ReportingEngine {
         const item = await Queue.findOne({ status: 'Pending' }).sort({ createdAt: 1 });
         if (!item) return;
 
-        // Pick an available account
         const account = await Account.findOne({
             status: 'active',
             $or: [{ cooldownUntil: null }, { cooldownUntil: { $lte: new Date() } }]
@@ -96,7 +93,6 @@ class ReportingEngine {
         const client = createRobloxClient(account.cookie, account.userAgent, proxy);
 
         try {
-            // Need a CSRF token. We'll perform a quick handshake.
             let csrf = null;
             try {
                 const res = await client.post("https://apis.roblox.com/abuse-reporting/v2/abuse-report", {});
@@ -123,167 +119,149 @@ class ReportingEngine {
                 item.verificationId = `VER-${Math.floor(Math.random() * 1000000)}`;
                 this.log(`Resumed task Success: ${item.targetName}`);
 
-                // Add to history
-                await Report.create({
-                    victimUsername: item.targetName,
-                    victimId: item.targetId,
-                    status: 'Success',
-                    timestamp: new Date()
-                });
+                await Report.create({ victimUsername: item.targetName, victimId: item.targetId, status: 'Success', timestamp: new Date() });
             } else if (res.status === 429) {
-                item.status = 'Pending'; // Back to pending to try again
+                item.status = 'Pending';
                 account.status = 'cooldown';
                 account.cooldownUntil = new Date(Date.now() + 600000);
                 await account.save();
             } else {
                 item.status = 'Failed';
-                await Report.create({
-                    victimUsername: item.targetName,
-                    victimId: item.targetId,
-                    status: 'Failed',
-                    errorType: `Code ${res.status}`,
-                    timestamp: new Date()
-                });
+                await Report.create({ victimUsername: item.targetName, victimId: item.targetId, status: 'Failed', errorType: `Code ${res.status}`, timestamp: new Date() });
             }
         } catch (err) {
             item.status = 'Failed';
             item.responseCode = err.response?.status || 500;
-            await Report.create({
-                victimUsername: item.targetName,
-                victimId: item.targetId,
-                status: 'Failed',
-                errorType: err.message,
-                timestamp: new Date()
-            });
+            await Report.create({ victimUsername: item.targetName, victimId: item.targetId, status: 'Failed', errorType: err.message, timestamp: new Date() });
         }
 
         await item.save();
     }
 
-    // Stage 2: Recursive Scrapers
-    async scrapeGame(universeId) {
-        const targets = [];
-        try {
-            // Universe Info
-            const universeRes = await axios.get(`https://games.roblox.com/v1/universes/${universeId}`);
-            const rootPlaceId = universeRes.data.rootPlaceId;
-            targets.push({ id: rootPlaceId, name: universeRes.data.name, type: 'GAME' });
+    async performDiscovery(targetId, type) {
+        let targets = [];
+        let summary = "";
 
-            // Linked Places
-            const placesRes = await axios.get(`https://games.roblox.com/v1/universes/${universeId}/places?limit=100`);
-            placesRes.data.data.forEach(p => {
-                if (p.id !== rootPlaceId) targets.push({ id: p.id, name: p.name, type: 'GAME' });
-            });
-
-            // Badges
-            const badgesRes = await axios.get(`https://badges.roblox.com/v1/universes/${universeId}/badges?limit=100`);
-            badgesRes.data.data.forEach(b => targets.push({ id: b.id, name: b.name, type: 'ASSET' }));
-
-            // Gamepasses
-            const passesRes = await axios.get(`https://games.roblox.com/v1/games/${universeId}/game-passes?limit=100`);
-            passesRes.data.data.forEach(gp => targets.push({ id: gp.id, name: gp.name, type: 'ASSET' }));
-        } catch (err) { console.error(`[RMR] Game Scrape Fail: ${err.message}`); }
-        return targets;
-    }
-
-    async scrapeGroup(groupId) {
-        const targets = [];
-        try {
-            // Group Games
-            const gamesRes = await axios.get(`https://games.roblox.com/v2/groups/${groupId}/games?limit=100`);
-            for (const g of gamesRes.data.data) {
-                const subTargets = await this.scrapeGame(g.id);
-                targets.push(...subTargets);
-            }
-
-            // Group Store
-            const storeRes = await axios.get(`https://catalog.roblox.com/v1/search/items/details?CreatorTargetId=${groupId}&CreatorType=Group&Limit=30`);
-            storeRes.data.data.forEach(i => targets.push({ id: i.id, name: i.name, type: 'ASSET' }));
-        } catch (err) { console.error(`[RMR] Group Scrape Fail: ${err.message}`); }
-        return targets;
-    }
-
-    async scrapeUserInventory(userId) {
-        const targets = [];
-        try {
-            const res = await axios.get(`https://catalog.roblox.com/v1/search/items/details?CreatorTargetId=${userId}&CreatorType=User&Limit=30`);
-            res.data.data.forEach(i => targets.push({ id: i.id, name: i.name, type: 'ASSET' }));
-        } catch (err) { console.error(`[RMR] User Scrape Fail: ${err.message}`); }
-        return targets;
-    }
-
-    async executeMassReport(interaction, mainTarget, reasonKey, delaySec, fleetIds, isRandom, isFullWipe) {
-        const mapping = this.reasonMap[reasonKey] || this.reasonMap["other"];
-        let targets = [{ id: mainTarget.id, name: mainTarget.username, type: mainTarget.type }];
-
-        if (isFullWipe) {
-            this.log(`Deep Scraper Active for ${mainTarget.username}`);
-            if (interaction) await interaction.editReply({ content: "🔍 **Deep Scraper Active...** Finding all linked assets, places, and badges.", embeds: [], components: [] });
-            if (mainTarget.type === 'GAME') targets = await this.scrapeGame(mainTarget.id);
-            else if (mainTarget.type === 'GROUP') targets = await this.scrapeGroup(mainTarget.id);
-            else if (mainTarget.type === 'BAN') {
-                const inv = await this.scrapeUserInventory(mainTarget.id);
-                targets.push(...inv);
-            }
-            if (interaction) await interaction.editReply({ content: `✅ **Scrape Complete!** Found **${targets.length}** total targets. Starting execution loop...` });
+        if (type === 'GAME') {
+            targets = await this.scrapeGameExhaustive(targetId);
+            summary = `Identified Universe, Sub-places, Badges, and Gamepasses.`;
+        } else if (type === 'GROUP') {
+            targets = await this.scrapeGroupExhaustive(targetId);
+            summary = `Mapped all Group Games, Store Items, and linked Assets.`;
+        } else if (type === 'BAN') {
+            targets = await this.scrapeUserExhaustive(targetId);
+            summary = `Inventoried all created items, games, and profile components.`;
+        } else {
+            targets = [{ id: targetId, name: 'Marketplace Asset', type: 'ASSET' }];
+            summary = `Targeted single marketplace item.`;
         }
 
-        // Write targets to target_queue
+        return { targets, summary };
+    }
+
+    async scrapeGameExhaustive(universeId) {
+        const targets = [];
+        try {
+            const universeRes = await axios.get(`https://games.roblox.com/v1/universes/${universeId}`);
+            const data = universeRes.data;
+            targets.push({ id: data.rootPlaceId, name: `${data.name} (Root)`, type: 'GAME' });
+
+            const placesRes = await axios.get(`https://games.roblox.com/v1/universes/${universeId}/places?limit=100`);
+            placesRes.data.data.forEach(p => {
+                if (p.id !== data.rootPlaceId) targets.push({ id: p.id, name: `${p.name} (Sub-place)`, type: 'GAME' });
+            });
+
+            const badgesRes = await axios.get(`https://badges.roblox.com/v1/universes/${universeId}/badges?limit=100`);
+            badgesRes.data.data.forEach(b => targets.push({ id: b.id, name: `${b.name} (Badge)`, type: 'ASSET' }));
+
+            const passesRes = await axios.get(`https://games.roblox.com/v1/games/${universeId}/game-passes?limit=100`);
+            passesRes.data.data.forEach(gp => targets.push({ id: gp.id, name: `${gp.name} (Pass)`, type: 'ASSET' }));
+        } catch (err) { this.log(`Game Scrape Fail: ${err.message}`); }
+        return targets;
+    }
+
+    async scrapeGroupExhaustive(groupId) {
+        const targets = [];
+        try {
+            const gamesRes = await axios.get(`https://games.roblox.com/v2/groups/${groupId}/games?limit=100`);
+            for (const g of gamesRes.data.data) {
+                const sub = await this.scrapeGameExhaustive(g.id);
+                targets.push(...sub);
+            }
+
+            const storeRes = await axios.get(`https://catalog.roblox.com/v1/search/items/details?CreatorTargetId=${groupId}&CreatorType=Group&Limit=50`);
+            storeRes.data.data.forEach(i => targets.push({ id: i.id, name: `${i.name} (Store Item)`, type: 'ASSET' }));
+        } catch (err) { this.log(`Group Scrape Fail: ${err.message}`); }
+        return targets;
+    }
+
+    async scrapeUserExhaustive(userId) {
+        const targets = [{ id: userId, name: 'User Profile', type: 'BAN' }];
+        try {
+            const res = await axios.get(`https://catalog.roblox.com/v1/search/items/details?CreatorTargetId=${userId}&CreatorType=User&Limit=50`);
+            res.data.data.forEach(i => targets.push({ id: i.id, name: `${i.name} (User Asset)`, type: 'ASSET' }));
+
+            const gamesRes = await axios.get(`https://games.roblox.com/v2/users/${userId}/games?limit=50`);
+            for (const g of gamesRes.data.data) {
+                const sub = await this.scrapeGameExhaustive(g.id);
+                targets.push(...sub);
+            }
+        } catch (err) { this.log(`User Scrape Fail: ${err.message}`); }
+        return targets;
+    }
+
+    async executeMassReportFromDiscovery(interaction, session) {
+        const { targets, reason, targetId } = session;
+        const fleet = await Account.find({ status: 'active' });
+
+        if (fleet.length === 0) return interaction.followUp({ content: 'RMR | No active accounts in fleet.', flags: [1 << 6] });
+
         const queueItems = [];
         for (const t of targets) {
             const q = await Queue.create({
                 targetId: t.id,
                 targetName: t.name,
                 targetType: t.type,
-                reasonKey: reasonKey,
+                reasonKey: 'other',
                 status: 'Pending'
             });
             queueItems.push(q);
         }
 
-        let accounts = await Account.find({ _id: { $in: fleetIds } });
-        if (isRandom) {
-            for (let i = accounts.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [accounts[i], accounts[j]] = [accounts[j], accounts[i]];
-            }
-        }
-
-        const stats = { success: 0, failed: 0, rateLimit: 0, badSession: 0, startTime: Date.now(), results: [] };
+        const stats = { success: 0, failed: 0, results: [] };
+        const startTime = Date.now();
         const controller = new AbortController();
-        this.activeControllers.set(mainTarget.id, controller);
-
-        // Dummy CSRF Handshake
-        let globalCsrf = null;
-        try {
-            const firstAcc = accounts[0];
-            const dummyClient = createRobloxClient(firstAcc.cookie);
-            const dummyRes = await dummyClient.post("https://apis.roblox.com/abuse-reporting/v2/abuse-report", {});
-            globalCsrf = dummyRes.headers['x-csrf-token'];
-        } catch (err) {
-            globalCsrf = err.response?.headers['x-csrf-token'];
-        }
+        this.activeControllers.set(targetId, controller);
 
         for (let i = 0; i < queueItems.length; i++) {
-            if (controller.signal.aborted) break;
-            const qItem = queueItems[i];
-            qItem.status = 'In Progress';
-            await qItem.save();
+            if (controller.signal.aborted) {
+                this.log(`Takedown Aborted for ${targetId}`);
+                break;
+            }
 
-            // Pick next account (Rotation)
-            const account = accounts[i % accounts.length];
+            const qItem = queueItems[i];
+            const account = fleet[i % fleet.length];
+
+            // 429 Account Rotation Logic
+            if (account.status === 'cooldown' && account.cooldownUntil > new Date()) {
+                // Try next account
+                continue;
+            }
+
             const proxy = await this.getNextProxy();
             const client = createRobloxClient(account.cookie, account.userAgent, proxy);
 
-            // Human Jitter
-            const jitter = (Math.random() * 0.5); // 0-0.5s jitter
-            await new Promise(r => setTimeout(r, (delaySec + jitter) * 1000));
-
             try {
+                let csrf = null;
+                try {
+                    const r = await client.post("https://apis.roblox.com/abuse-reporting/v2/abuse-report", {}, { signal: controller.signal });
+                    csrf = r.headers['x-csrf-token'];
+                } catch (e) { csrf = e.response?.headers['x-csrf-token']; }
+
                 const res = await client.post(
                     "https://apis.roblox.com/abuse-reporting/v2/abuse-report",
-                    { "reportReason": mapping.reason, "comment": "Automation detected terms of service violation.", "tags": mapping.tags, "id": qItem.targetId },
-                    { signal: controller.signal, headers: { 'x-csrf-token': globalCsrf } }
+                    { "reportReason": "OtherRuleViolation", "comment": reason, "tags": ["other"], "id": qItem.targetId },
+                    { headers: { 'x-csrf-token': csrf }, signal: controller.signal }
                 );
 
                 qItem.responseCode = res.status;
@@ -293,71 +271,76 @@ class ReportingEngine {
 
                 if (res.status === 200 && res.data.success) {
                     qItem.status = 'Success';
-                    qItem.verificationId = `VER-${Math.floor(Math.random() * 1000000)}`;
                     stats.success++;
-                    this.log(`Report Success: ${qItem.targetName}`);
+                    this.log(`Success: ${qItem.targetName} (Verified by Roblox)`);
                 } else if (res.status === 429) {
                     qItem.status = 'Cooldown';
-                    stats.rateLimit++;
                     account.status = 'cooldown';
                     account.cooldownUntil = new Date(Date.now() + 600000);
                     await account.save();
+                    stats.failed++;
                 } else {
                     qItem.status = 'Failed';
                     stats.failed++;
                 }
             } catch (err) {
+                if (err.name === 'AbortError') break;
                 qItem.status = 'Failed';
-                qItem.responseCode = err.response?.status || 500;
                 stats.failed++;
             }
 
             await qItem.save();
             stats.results.push(qItem);
 
-            // Progress Bar Update (Every 5s)
-            if (interaction && i % 2 === 0) {
+            if (i % 2 === 0 || i === queueItems.length - 1) {
                 const progress = Math.round(((i + 1) / queueItems.length) * 100);
                 const bar = "🟦".repeat(Math.floor(progress / 10)) + "⬜".repeat(10 - Math.floor(progress / 10));
+                const ticker = qItem.status === 'Success' ? `✅ Verified: ${qItem.targetName}` : `❌ Failed: ${qItem.targetName}`;
+
                 const embed = new EmbedBuilder()
-                    .setTitle(`Purging: ${mainTarget.username}`)
-                    .setDescription(`**Progress:** [${bar}] ${progress}%\n**Ticker:** ${qItem.status}: ${qItem.targetName} (${qItem.verificationId || 'N/A'})\n**Stats:** Success: ${stats.success} | Fail: ${stats.failed}`)
-                    .setColor('#f1c40f');
+                    .setTitle(`RMR | Purge in Progress: ${targetId}`)
+                    .setDescription(`**Progress:** [${bar}] ${progress}%\n**Live Ticker:** ${ticker}\n**Stats:** Success: ${stats.success} | Fail: ${stats.failed}`)
+                    .setColor('#f1c40f')
+                    .setFooter({ text: 'Roblox Mass Reporter | System Status: Optimal' });
+
                 await interaction.editReply({ embeds: [embed] }).catch(() => {});
             }
+
+            await new Promise(r => setTimeout(r, 2000));
         }
 
-        this.activeControllers.delete(mainTarget.id);
+        this.activeControllers.delete(targetId);
 
-        // Final After-Action & Audit Log
-        const duration = Math.floor((Date.now() - stats.startTime) / 1000);
-        let auditText = `ROBLOX MASS REPORTER AUDIT LOG\nTARGET: ${mainTarget.username}\nTIME: ${new Date().toLocaleString()}\n\n`;
+        let auditText = `ROBLOX MASS REPORTER AUDIT LOG\nTARGET: ${targetId}\nTIME: ${new Date().toLocaleString()}\n\n`;
         stats.results.forEach(r => {
             const bodyStr = JSON.stringify(r.responseBody || {});
             auditText += `[${r.status}] ID: ${r.targetId} | Name: ${r.targetName} | Code: ${r.responseCode} | Acc: ${r.accountUsed} | Proxy: ${r.proxyUsed} | Response: ${bodyStr}\n`;
         });
 
-        const auditFile = new AttachmentBuilder(Buffer.from(auditText), { name: 'audit_log.txt' });
+        const auditFile = new AttachmentBuilder(Buffer.from(auditText), { name: 'RMR_Audit_Log.txt' });
 
-        if (interaction) {
-            const finalEmbed = new EmbedBuilder()
-                .setTitle('✅ Universal Takedown Complete')
-                .setColor('#2ecc71')
-                .addFields(
-                    { name: 'Successes', value: `${stats.success}`, inline: true },
-                    { name: 'Failures', value: `${stats.failed}`, inline: true },
-                    { name: 'Rate Limits', value: `${stats.rateLimit}`, inline: true },
-                    { name: 'Total Time', value: `${duration}s`, inline: true }
-                ).setFooter({ text: 'Check your DMs for the full Audit Log.' });
-            await interaction.followUp({ embeds: [finalEmbed] });
-            await interaction.user.send({ content: `**Audit Log for ${mainTarget.username}:**`, files: [auditFile] }).catch(() => {});
-        }
+        const finalEmbed = new EmbedBuilder()
+            .setTitle('✅ RMR | Purge Complete')
+            .setColor('#2ecc71')
+            .addFields(
+                { name: 'Total Success', value: `${stats.success}`, inline: true },
+                { name: 'Total Failures', value: `${stats.failed}`, inline: true },
+                { name: 'Duration', value: `${Math.floor((Date.now() - startTime) / 1000)}s`, inline: true }
+            ).setFooter({ text: 'Roblox Mass Reporter | System Status: Optimal' });
 
-        // Cleanup
+        await interaction.editReply({ embeds: [finalEmbed], components: [] });
+        await interaction.user.send({ content: `**Audit Log for ${targetId}:**`, files: [auditFile] }).catch(() => {});
+
         await Queue.deleteMany({ _id: { $in: queueItems.map(q => q._id) } });
     }
 
-    terminateAll() { for (const controller of this.activeControllers.values()) controller.abort(); this.activeControllers.clear(); }
+    terminateAll() {
+        for (const [id, controller] of this.activeControllers.entries()) {
+            controller.abort();
+            this.activeControllers.delete(id);
+        }
+        this.log("🔴 RMR | ALL LOOPS STOPPED VIA KILL SWITCH.");
+    }
 }
 
 module.exports = ReportingEngine;

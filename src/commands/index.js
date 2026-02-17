@@ -6,7 +6,10 @@ const {
     ButtonStyle,
     StringSelectMenuBuilder,
     ComponentType,
-    MessageFlags
+    MessageFlags,
+    ModalBuilder,
+    TextInputBuilder,
+    TextInputStyle
 } = require('discord.js');
 const Account = require('../models/Account');
 const Report = require('../models/Report');
@@ -20,71 +23,37 @@ module.exports = (engine) => [
     {
         data: new SlashCommandBuilder()
             .setName('report')
-            .setDescription('RMR | Universal Takedown Wizard')
-            .addStringOption(opt => opt.setName('id').setDescription('Target ID (User, Group, or Asset)').setRequired(true)),
+            .setDescription('RMR | Universal Takedown Wizard'),
         async execute(interaction) {
+            // Step A: Instant Response (Fixing Error 10062)
             await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
 
-            const targetId = interaction.options.getString('id');
+            // Step B: RMR Command Hub
+            const embed = new EmbedBuilder()
+                .setTitle('RMR | Universal Takedown Hub')
+                .setDescription('Select the target category below to begin the mapping process.')
+                .addFields(
+                    { name: '👤 Player/User', value: 'Profile-level takedowns.', inline: true },
+                    { name: '📦 Assets', value: 'Clothing, decals, models.', inline: true },
+                    { name: '🎮 Games', value: 'Lobby, maps, sub-places.', inline: true },
+                    { name: '🏢 Group', value: 'Entire corporate footprint.', inline: true }
+                )
+                .setColor('#3498db')
+                .setFooter({ text: FOOTER_TEXT });
 
             const domainRow = new ActionRowBuilder().addComponents(
                 new StringSelectMenuBuilder()
-                    .setCustomId('select_domain')
+                    .setCustomId('report_select_domain')
                     .setPlaceholder('RMR | Pick Target Domain...')
                     .addOptions([
-                        { label: 'User Profile (Ban)', value: 'BAN', description: 'Report a specific user ID.' },
-                        { label: 'Marketplace Asset', value: 'ASSET', description: 'Report a hat, shirt, or model.' },
-                        { label: 'Experience (Game)', value: 'GAME', description: 'Report a place or universe ID.' },
-                        { label: 'Group Entity', value: 'GROUP', description: 'Report an entire group.' }
+                        { label: 'Player/User', value: 'BAN', description: 'Profile-level takedowns.', emoji: '👤' },
+                        { label: 'Assets & Marketplace', value: 'ASSET', description: 'Clothing, decals, models.', emoji: '📦' },
+                        { label: 'Games & Universes', value: 'GAME', description: 'Lobby, maps, sub-places.', emoji: '🎮' },
+                        { label: 'Group Syndicate', value: 'GROUP', description: 'Entire corporate footprint.', emoji: '🏢' }
                     ])
             );
 
-            const msg = await interaction.editReply({ content: `### RMR | Universal Takedown: ID ${targetId}\nSelect the target category below:`, components: [domainRow] });
-
-            const state = { targetId, type: null, reason: null, delay: 2, selectedAccounts: new Set(), isFullWipe: false };
-            const collector = msg.createMessageComponentCollector({ time: 600000 });
-
-            collector.on('collect', async i => {
-                if (i.user.id !== interaction.user.id) return i.reply({ content: "RMR | Not your menu.", flags: [MessageFlags.Ephemeral] });
-
-                if (i.customId === 'select_domain') {
-                    state.type = i.values[0];
-                    const row = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('select_reason').setPlaceholder('RMR | Reason...').addOptions(Object.entries(engine.reasonMap).map(([key, val]) => ({ label: val.label, value: key }))));
-                    await i.update({ content: "### RMR | Step 2: Reason Selection", components: [row] });
-                } else if (i.customId === 'select_reason') {
-                    state.reason = i.values[0];
-                    const row = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId('toggle_wipe_on').setLabel('Full Wipe: ON').setStyle(ButtonStyle.Danger),
-                        new ButtonBuilder().setCustomId('toggle_wipe_off').setLabel('Full Wipe: OFF').setStyle(ButtonStyle.Secondary)
-                    );
-                    await i.update({ content: "### RMR | Step 3: Deep Scraper\nDo you want to find and report all linked assets/games?", components: [row] });
-                } else if (i.customId.startsWith('toggle_wipe')) {
-                    state.isFullWipe = i.customId === 'toggle_wipe_on';
-                    const row = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('select_delay').setPlaceholder('RMR | Speed...').addOptions([{label:'1s',value:'1'},{label:'3s',value:'3'},{label:'5s',value:'5'},{label:'10s',value:'10'},{label:'15s',value:'15'}]));
-                    await i.update({ content: "### RMR | Step 4: Delay Selection", components: [row] });
-                } else if (i.customId === 'select_delay') {
-                    state.delay = parseInt(i.values[0]);
-                    await updateAccountPicker(i);
-                } else if (i.customId === 'select_accounts') {
-                    i.values.forEach(val => state.selectedAccounts.add(val));
-                    const row = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId('go_seq').setLabel('Start (Sequential)').setStyle(ButtonStyle.Success),
-                        new ButtonBuilder().setCustomId('go_rand').setLabel('Start (Randomize)').setStyle(ButtonStyle.Secondary)
-                    );
-                    await i.update({ content: `### RMR | Final Step: Launch\nSelected: **${state.selectedAccounts.size} accounts**`, components: [row] });
-                } else if (i.customId === 'go_seq' || i.customId === 'go_rand') {
-                    collector.stop();
-                    await i.update({ content: "🚀 RMR | Mission Launched. Monitoring progress...", components: [] });
-                    await engine.executeMassReport(interaction, { id: state.targetId, username: state.targetId, type: state.type }, state.reason, state.delay, Array.from(state.selectedAccounts), i.customId === 'go_rand', state.isFullWipe);
-                }
-            });
-
-            async function updateAccountPicker(i) {
-                const allAccounts = await Account.find({ status: 'active' });
-                const menu = new StringSelectMenuBuilder().setCustomId('select_accounts').setPlaceholder(`RMR | Pick Accounts...`).setMinValues(1).setMaxValues(Math.min(allAccounts.length, 25)).addOptions(allAccounts.slice(0, 25).map(a => ({ label: a.username, value: a._id.toString() })));
-                const row = new ActionRowBuilder().addComponents(menu);
-                await i.update({ content: "### RMR | Step 5: Account Selection", components: [row] });
-            }
+            await interaction.editReply({ embeds: [embed], components: [domainRow] });
         }
     },
     {
