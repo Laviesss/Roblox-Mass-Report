@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: rmr
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20.x
+      - key: MONGODB_URI
+        sync: false
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: CLIENT_ID
+        sync: false
+      - key: CLOUDS_COOKIES
+        sync: false
+      - key: RENDER
+        value: "true"
+      - key: PORT
+        value: 10000

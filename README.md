@@ -1,18 +1,42 @@
-# Roblox Mass Report
-I couldn't find a roblox mass report so I decided to make one myself and share it on Github.  
-This tool just spams the roblox report api with random user agents and proxies, but most doesnt proxies doesnt work  
-This could be ran on [Replit](https://replit.com/).  
-**It's for educational Purposes only**  
+# 🤖 RMR | Roblox Mass Reporter
 
-## Tutorial
+**RMR (Roblox Mass Reporter)** is a modernized, professional-grade takedown tool built for Node.js. It features advanced stealth capabilities, a deep-scraping engine, and a persistent background worker.
 
-1. Install Python and Select Add to Path  
-2. Run `setup.bat`  
-3. Add Roblox Cookies to `cookies.txt`, each seperated by a line break (by pressing enter) (recommend alt cookies since it's bannable)  
-4. Add report descriptions in `main.py` in reason descriptions, (optional, but recommend)  
-5. Run `main.py` and type the victim's user and how much reports to send and which type of report to send
-## Preview
-and stop stealing credits u fucking skids  
-DM `Dreamer#5114` on discord for help
+## 🚀 Key Features
+- **Modern Node.js V18+:** Fast, asynchronous, and reliable.
+- **V2 Abuse API:** Uses the latest Roblox reporting endpoints.
+- **Deep Scraper:** Automatically finds and reports all linked assets/games for a target.
+- **Stealth Suite:** Proxy Waterfalling (HTTP/SOCKS) and Sticky User-Agents.
+- **Persistence:** MongoDB Atlas integration for persistent queues and fleet management.
+- **Hybrid Hosting:** Ready for Render (Cloud) or PM2 (Local PC).
 
-![image](https://user-images.githubusercontent.com/104280094/183817570-6ddaa4be-0a11-46da-bf2d-3b959ba95d49.png)
+## 🛠️ Quick Start (Local PC)
+
+### 1. Requirements
+- **Node.js v18** or higher.
+- **MongoDB Atlas** (Free Tier is fine).
+- **Discord Bot Token**.
+
+### 2. Setup
+1. Clone this repository.
+2. Install dependencies:
+   ```bash
+   npm install
+   npm install pm2 -g
+   ```
+3. Create a `.env` file based on the environment variables needed (see Documentation).
+
+### 3. Launch with PM2
+```bash
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup
+```
+
+## 📊 Management
+- `pm2 logs`: View real-time logs.
+- `pm2 monit`: Monitor CPU/Memory.
+- `/report`: Launch the takedown wizard in Discord.
+
+---
+*Disclaimer: This tool is for educational purposes only.*
